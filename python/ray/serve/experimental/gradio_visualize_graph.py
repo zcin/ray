@@ -12,11 +12,13 @@ from ray.serve._private.deployment_method_executor_node import (
 from ray.serve._private.json_serde import dagnode_from_json
 from ray.dag.utils import _DAGNodeNameGenerator
 from ray.serve.handle import RayServeHandle
+from ray.experimental.gradio_utils import type_to_string
 
 from typing import Any, Dict, Optional
 from collections import defaultdict
 import json
 import logging
+from pydoc import locate
 
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,73 @@ def lazy_import_gradio():
 
         _gradio = gradio
     return _gradio
+
+
+def get_block(node, **kwargs):
+    gr = lazy_import_gradio()
+
+    return_type = node.get_return_type()
+    node_name = _DAGNodeNameGenerator().get_node_name(node)
+    if return_type is None:
+        logger.warning(
+            f"Return type for {node_name} node was not provided. "
+            "Defaulting to gr.Textbox."
+        )
+        return gr.Textbox(**kwargs)
+
+    if return_type == "int":
+        return gr.Number(precision=0, **kwargs)
+    elif return_type == "float":
+        return gr.Number(**kwargs)
+    elif return_type == "str":
+        return gr.Textbox(**kwargs)
+    elif return_type == "bool":
+        return gr.Checkbox(**kwargs)
+    elif return_type == "pandas.core.frame.DataFrame":
+        return gr.Dataframe(**kwargs)
+    elif (
+        return_type == "list"
+        or return_type == "dict"
+        or return_type == "typing.List"
+        or return_type == "typing.Dict"
+    ):
+        return gr.JSON(**kwargs)
+    else:
+        from PIL import ImageFile
+
+        if (
+            issubclass(locate(return_type), ImageFile.ImageFile)
+            or return_type == "numpy.ndarray"
+        ):
+            return gr.Image(**kwargs)
+
+    logger.warning(
+        f"Return type for {node_name} node is not valid. Defaulting to gr.Textbox."
+    )
+    return gr.Textbox(**kwargs)
+
+
+def postprocessing(data):
+    """Add support for types that are not supported by Gradio
+
+    For types like torch tensors, which are not supported by Gradio, transform them into
+    a form that Gradio can process and display.
+    """
+
+    if type_to_string(type(data)) == "torch.Tensor":
+        try:
+            import torch
+            from torchvision import transforms
+
+            transformer = transforms.ToPILImage()
+            return transformer(torch.squeeze(data))
+        except ModuleNotFoundError:
+            logger.warning(
+                "The required modules aren't installed, unable to process torch tensor."
+            )
+            return data
+
+    return data
 
 
 class GraphVisualizer:
@@ -89,10 +158,12 @@ class GraphVisualizer:
 
                 if isinstance(node, InputAttributeNode):
                     key = node._key
-                    if key not in self.input_key_to_blocks:
-                        self.input_key_to_blocks[key] = gr.Number(label=name)
+                    if key not in self.input_key_to_block:
+                        self.input_key_to_block[key] = get_block(node, label=name)
                 else:
-                    self.node_to_block[node] = gr.Number(label=name, interactive=False)
+                    self.node_to_block[node] = get_block(
+                        node, label=name, interactive=False
+                    )
 
         for level in sorted(levels.keys()):
             with gr.Row():
@@ -132,8 +203,13 @@ class GraphVisualizer:
             self.resolved_nodes += 1
             if self.resolved_nodes == len(self.node_to_block):
                 self.finished_last_inference = True
+<<<<<<< HEAD
             return result
         except Exception:
+=======
+            return postprocessing(result)
+        except BaseException:
+>>>>>>> dd0bf4660 (add type inference and add to serve run)
             self.resolved_nodes += 1
             if self.resolved_nodes == len(self.node_to_block):
                 self.finished_last_inference = True

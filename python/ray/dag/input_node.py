@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Union
 
 from ray.dag import DAGNode
 from ray.dag.format_utils import get_dag_node_str
+from ray.experimental.gradio_utils import type_to_string
 from ray.dag.constants import DAGNODE_TYPE_KEY
 from ray.util.annotations import DeveloperAPI
 
@@ -57,7 +58,7 @@ class InputNode(DAGNode):
     ...     # dag_input["m1"], dag_input["m2"]
     """
 
-    def __init__(self, *args, _other_args_to_resolve=None, **kwargs):
+    def __init__(self, *args, return_types=None, _other_args_to_resolve=None, **kwargs):
         """InputNode should only take attributes of validating and converting
         input data rather than the input data itself. User input should be
         provided via `ray_dag.execute(user_input)`.
@@ -70,6 +71,11 @@ class InputNode(DAGNode):
         if len(args) != 0 or len(kwargs) != 0:
             raise ValueError("InputNode should not take any args or kwargs.")
 
+        if return_types:
+            self.gradio_visualization_enabled = True
+            self.return_types = [type_to_string(type) for type in return_types]
+        else:
+            self.gradio_visualization_enabled = False
         super().__init__([], {}, {}, other_args_to_resolve=_other_args_to_resolve)
 
     def _copy_impl(
@@ -125,7 +131,10 @@ class InputNode(DAGNode):
             "Please only use int index or str as first-level key to "
             "access fields of dag input."
         )
-        return InputAttributeNode(self, key, "__getitem__")
+        return_type = None
+        if self.gradio_visualization_enabled:
+            return_type = self.return_types[key]
+        return InputAttributeNode(self, key, "__getitem__", return_type)
 
     def __enter__(self):
         self.set_context(IN_CONTEXT_MANAGER, True)
@@ -177,7 +186,13 @@ class InputAttributeNode(DAGNode):
         >>> ray_dag.execute([2, 3])
     """
 
-    def __init__(self, dag_input_node: InputNode, key: str, accessor_method: str):
+    def __init__(
+        self,
+        dag_input_node: InputNode,
+        key: str,
+        accessor_method: str,
+        return_type: str = None,
+    ):
         self._dag_input_node = dag_input_node
         self._key = key
         self._accessor_method = accessor_method
@@ -189,6 +204,7 @@ class InputAttributeNode(DAGNode):
                 "dag_input_node": dag_input_node,
                 "key": key,
                 "accessor_method": accessor_method,
+                "return_type_annotation": return_type,
             },
         )
 
@@ -203,6 +219,7 @@ class InputAttributeNode(DAGNode):
             new_other_args_to_resolve["dag_input_node"],
             new_other_args_to_resolve["key"],
             new_other_args_to_resolve["accessor_method"],
+            new_other_args_to_resolve["return_type_annotation"],
         )
 
     def _execute_impl(self, *args, **kwargs):
@@ -251,9 +268,14 @@ class InputAttributeNode(DAGNode):
             input_json["other_args_to_resolve"]["dag_input_node"],
             input_json["other_args_to_resolve"]["key"],
             input_json["other_args_to_resolve"]["accessor_method"],
+            input_json["other_args_to_resolve"]["return_type_annotation"],
         )
         node._stable_uuid = input_json["uuid"]
         return node
+
+    def get_return_type(self) -> str:
+        if "return_type_annotation" in self._bound_other_args_to_resolve:
+            return self._bound_other_args_to_resolve["return_type_annotation"]
 
 
 @DeveloperAPI
