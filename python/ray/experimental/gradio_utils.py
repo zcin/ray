@@ -1,4 +1,9 @@
-def type_to_string(_type):
+def type_to_string(_type: type) -> str:
+    """Gets the string representation of a type.
+
+    THe original type can be derived from the returned string representation through
+    pydoc.locate().
+    """
     if _type.__module__ == "typing":
         return str(_type)
     elif _type.__module__ == "builtins":
