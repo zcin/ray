@@ -1039,6 +1039,8 @@ class Router:
 
     def update_autoscaling_config(self, autoscaling_config: AutoscalingConfig):
         self.autoscaling_config = autoscaling_config
+        interval = autoscaling_config.metrics_interval_s
+        logger.info(f"Updated autoscaling config. Metrics interval = {interval}")
 
         # Start the metrics pusher if autoscaling is enabled.
         if self.autoscaling_config:
