@@ -39,9 +39,15 @@ steps:
     instance_type: large
     commands:
       - bazel run //ci/ray_ci:test_in_docker -- //python/ray/serve/... //python/ray/tests/...  serve 
-        --except-tags post_wheel_build,gpu,worker-container,ha_integration
+        --except-tags post_wheel_build,gpu,worker-container,ha_integration,autoscaling
         --workers "$${BUILDKITE_PARALLEL_JOB_COUNT}" --worker-id "$${BUILDKITE_PARALLEL_JOB}" --parallelism-per-worker 3
         --build-name servebuild --test-env=EXPECTED_PYTHON_VERSION=3.9
+      - bazel run //ci/ray_ci:test_in_docker -- //python/ray/serve/... --only-tags autoscaling 
+        --workers "$${BUILDKITE_PARALLEL_JOB_COUNT}" --worker-id "$${BUILDKITE_PARALLEL_JOB}"
+        --test-env=EXPECTED_PYTHON_VERSION=3.9 --test-env=RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE=0
+      - bazel run //ci/ray_ci:test_in_docker -- //python/ray/serve/... --only-tags autoscaling 
+        --workers "$${BUILDKITE_PARALLEL_JOB_COUNT}" --worker-id "$${BUILDKITE_PARALLEL_JOB}"
+        --test-env=EXPECTED_PYTHON_VERSION=3.9 --test-env=RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE=1
     depends_on: "servebuild"
 
   - label: ":ray-serve: serve: pydantic < 2.0 tests"
