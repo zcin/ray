@@ -479,7 +479,7 @@ def test_downscaling_with_fractional_smoothing_factor(
     # Deploy with initial replicas = 2+, smoothing factor = 0.5
     serve_instance.deploy_apps(ServeDeploySchema(**{"applications": [app_config]}))
     wait_for_condition(
-        lambda: get_deployment_status(controller, "A") == DeploymentStatus.HEALTHY
+        check_deployment_status, name="A", expected_status=DeploymentStatus.HEALTHY
     )
 
     # Send a blocked request to one of two replicas.
@@ -487,7 +487,7 @@ def test_downscaling_with_fractional_smoothing_factor(
     # downscale delay = 5
     h = serve.get_app_handle(SERVE_DEFAULT_APP_NAME)
     h.remote()
-    check_autoscale_num_replicas_eq(controller, "A", initial_replicas)
+    check_num_replicas_eq(controller, "A", initial_replicas)
 
     # There is 1 ongoing (blocked) request and 2+ replicas. The
     # deployment should autoscale down to 1 replica despite the
@@ -495,7 +495,7 @@ def test_downscaling_with_fractional_smoothing_factor(
     current_num_replicas = initial_replicas
     while current_num_replicas > 1:
         wait_for_condition(
-            check_autoscale_num_replicas_eq,
+            check_num_replicas_eq,
             controller=controller,
             name="A",
             target=current_num_replicas - 1,
