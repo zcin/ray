@@ -65,7 +65,6 @@ py_test_module_list(
     "test_regression.py",
     "test_request_timeout.py",
     "test_cluster.py",
-    "test_autoscaling_policy.py",
     "test_cancellation.py",
     "test_streaming_response.py",
     "test_controller_recovery.py",
@@ -78,11 +77,21 @@ py_test_module_list(
     "test_http_headers.py",
     "test_proxy_response_generator.py",
     "test_target_capacity.py",
+    "test_autoscaling_policy",
   ],
   size = "medium",
   tags = ["exclusive", "team:serve"],
   deps = ["//python/ray/serve:serve_lib", ":conftest", ":common"],
 )
+
+# py_test_module_list(
+#   files = [
+#     "test_autoscaling_policy.py",
+#   ],
+#   size = "small",
+#   tags = ["exclusive", "team:serve", "autoscaling"],
+#   deps = ["//python/ray/serve:serve_lib", ":conftest", ":common"],
+# )
 
 py_test_module_list(
   files = [
