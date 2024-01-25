@@ -822,6 +822,64 @@ app = g.bind()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
+@pytest.mark.skipif(
+    os.environ.get("RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE", "0") == "0",
+    reason="Only works when collecting request metrics at handle.",
+)
+def test_max_concurrent_queries_set_to_one(serve_instance):
+    signal = SignalActor.remote()
+
+    @serve.deployment(
+        max_concurrent_queries=1,
+        autoscaling_config=AutoscalingConfig(
+            min_replicas=1,
+            max_replicas=5,
+            upscale_delay_s=0.5,
+            downscale_delay_s=0.5,
+            metrics_interval_s=0.5,
+            look_back_period_s=2,
+        ),
+        graceful_shutdown_timeout_s=1,
+        ray_actor_options={"num_cpus": 0},
+    )
+    async def f():
+        await signal.wait.remote()
+        return os.getpid()
+
+    h = serve.run(f.bind())
+    check_num_replicas_eq("f", 1)
+
+    # Repeatedly (5 times):
+    # 1. Send a new request.
+    # 2. Wait for the number of waiters on signal to increase by 1.
+    # 3. Assert the number of replicas has increased by 1.
+    refs = []
+    for i in range(5):
+        refs.append(h.remote())
+
+        def check_num_waiters(target: int):
+            assert ray.get(signal.cur_num_waiters.remote()) == target
+            return True
+
+        wait_for_condition(check_num_waiters, target=i + 1)
+        print(time.time(), f"Number of waiters on signal reached {i+1}.")
+        check_num_replicas_eq("f", i + 1)
+        print(time.time(), f"Confirmed number of replicas are at {i+1}.")
+
+    print(time.time(), "Releasing signal.")
+    signal.send.remote()
+
+    # Check that pids returned are unique
+    # This implies that each replica only served one request, so the
+    # number of "running" requests per replica was at most 1 at any time;
+    # meaning the "queued" requests were taken into consideration for
+    # autoscaling.
+    pids = [ref.result() for ref in refs]
+    assert len(pids) == len(set(pids)), f"Pids {pids} are not unique."
+    print("Confirmed each replica only served one request.")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
 def test_autoscaling_status_changes(serve_instance):
     """Test status changes when autoscaling deployments are deployed.
 
