@@ -451,8 +451,6 @@ def test_e2e_intermediate_downscaling(serve_instance):
 def test_downscaling_with_fractional_smoothing_factor(
     serve_instance, initial_replicas: int
 ):
-    controller = serve_instance._controller
-
     signal = SignalActor.options(name="signal123").remote()
     signal.send.remote(clear=True)
 
