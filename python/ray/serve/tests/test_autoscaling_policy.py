@@ -451,8 +451,6 @@ def test_e2e_intermediate_downscaling(serve_instance):
 def test_downscaling_with_fractional_smoothing_factor(
     serve_instance, initial_replicas: int
 ):
-    controller = serve_instance._controller
-
     signal = SignalActor.options(name="signal123").remote()
     signal.send.remote(clear=True)
 
@@ -479,7 +477,7 @@ def test_downscaling_with_fractional_smoothing_factor(
     # Deploy with initial replicas = 2+, smoothing factor = 0.5
     serve_instance.deploy_apps(ServeDeploySchema(**{"applications": [app_config]}))
     wait_for_condition(
-        lambda: get_deployment_status(controller, "A") == DeploymentStatus.HEALTHY
+        check_deployment_status, name="A", expected_status=DeploymentStatus.HEALTHY
     )
 
     # Send a blocked request to one of two replicas.
@@ -487,7 +485,7 @@ def test_downscaling_with_fractional_smoothing_factor(
     # downscale delay = 5
     h = serve.get_app_handle(SERVE_DEFAULT_APP_NAME)
     h.remote()
-    check_autoscale_num_replicas_eq(controller, "A", initial_replicas)
+    check_num_replicas_eq("A", initial_replicas)
 
     # There is 1 ongoing (blocked) request and 2+ replicas. The
     # deployment should autoscale down to 1 replica despite the
@@ -495,10 +493,7 @@ def test_downscaling_with_fractional_smoothing_factor(
     current_num_replicas = initial_replicas
     while current_num_replicas > 1:
         wait_for_condition(
-            check_autoscale_num_replicas_eq,
-            controller=controller,
-            name="A",
-            target=current_num_replicas - 1,
+            check_num_replicas_eq, name="A", target=current_num_replicas - 1
         )
         current_num_replicas -= 1
         print(f"Deployment has downscaled to {current_num_replicas} replicas.")
@@ -880,6 +875,64 @@ app = g.bind()
     for _ in range(15):
         pids.add(ray.get(send_request.remote()))
     assert existing_pid in pids
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
+@pytest.mark.skipif(
+    os.environ.get("RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE", "0") == "0",
+    reason="Only works when collecting request metrics at handle.",
+)
+def test_max_concurrent_queries_set_to_one(serve_instance):
+    signal = SignalActor.remote()
+
+    @serve.deployment(
+        max_concurrent_queries=1,
+        autoscaling_config=AutoscalingConfig(
+            min_replicas=1,
+            max_replicas=5,
+            upscale_delay_s=0.5,
+            downscale_delay_s=0.5,
+            metrics_interval_s=0.5,
+            look_back_period_s=2,
+        ),
+        graceful_shutdown_timeout_s=1,
+        ray_actor_options={"num_cpus": 0},
+    )
+    async def f():
+        await signal.wait.remote()
+        return os.getpid()
+
+    h = serve.run(f.bind())
+    check_num_replicas_eq("f", 1)
+
+    # Repeatedly (5 times):
+    # 1. Send a new request.
+    # 2. Wait for the number of waiters on signal to increase by 1.
+    # 3. Assert the number of replicas has increased by 1.
+    refs = []
+    for i in range(5):
+        refs.append(h.remote())
+
+        def check_num_waiters(target: int):
+            assert ray.get(signal.cur_num_waiters.remote()) == target
+            return True
+
+        wait_for_condition(check_num_waiters, target=i + 1)
+        print(time.time(), f"Number of waiters on signal reached {i+1}.")
+        check_num_replicas_eq("f", i + 1)
+        print(time.time(), f"Confirmed number of replicas are at {i+1}.")
+
+    print(time.time(), "Releasing signal.")
+    signal.send.remote()
+
+    # Check that pids returned are unique
+    # This implies that each replica only served one request, so the
+    # number of "running" requests per replica was at most 1 at any time;
+    # meaning the "queued" requests were taken into consideration for
+    # autoscaling.
+    pids = [ref.result() for ref in refs]
+    assert len(pids) == len(set(pids)), f"Pids {pids} are not unique."
+    print("Confirmed each replica only served one request.")
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
