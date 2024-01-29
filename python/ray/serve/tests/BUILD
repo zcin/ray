@@ -65,7 +65,6 @@ py_test_module_list(
     "test_regression.py",
     "test_request_timeout.py",
     "test_cluster.py",
-    "test_autoscaling_policy.py",
     "test_cancellation.py",
     "test_streaming_response.py",
     "test_controller_recovery.py",
