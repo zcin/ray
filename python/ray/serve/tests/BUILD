@@ -85,6 +85,15 @@ py_test_module_list(
 )
 
 py_test_module_list(
+  files=[
+    "test_autoscaling_policy.py",
+  ],
+  size="medium",
+  tags=["exclusive", "autoscaling", "team:serve"],
+  deps=["//python/ray/serve:serve_lib", ":conftest", ":common"],
+)
+
+py_test_module_list(
   files = [
     "test_gcs_failure.py",
     "test_gradio.py",
