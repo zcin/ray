@@ -84,6 +84,17 @@ py_test_module_list(
   deps = ["//python/ray/serve:serve_lib", ":conftest", ":common"],
 )
 
+# Test autoscaling with RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE set to 1
+py_test_module_list(
+  files=[
+    "test_autoscaling_policy.py",
+  ],
+  size="medium",
+  tags=["exclusive", "autoscaling", "team:serve"],
+  deps=["//python/ray/serve:serve_lib", ":conftest", ":common"],
+  env = {"RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE": "1"},
+)
+
 py_test_module_list(
   files = [
     "test_gcs_failure.py",
