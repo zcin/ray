@@ -4,6 +4,7 @@ from typing import Optional
 from ray.serve._private.common import TargetCapacityDirection
 from ray.serve._private.constants import SERVE_LOGGER_NAME
 from ray.serve._private.utils import get_capacity_adjusted_num_replicas
+from ray.serve._private.config import DeploymentConfig
 from ray.serve.config import AutoscalingConfig
 
 logger = logging.getLogger(SERVE_LOGGER_NAME)
@@ -12,8 +13,13 @@ logger = logging.getLogger(SERVE_LOGGER_NAME)
 class AutoscalingPolicyManager:
     """Managing autoscaling policies and the lifecycle of the scaling function calls."""
 
-    def __init__(self, config: Optional[AutoscalingConfig]):
-        self.config = config
+    def __init__(self, config: DeploymentConfig):
+        if config.num_replicas == "auto":
+            default_autoscaling_config = AutoscalingConfig.default()
+            self.config = default_autoscaling_config
+        else:
+            self.config = config.autoscaling_config
+
         self.policy = None
         self.policy_state = {}
         self._create_policy()
