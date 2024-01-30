@@ -296,7 +296,7 @@ class DeploymentSchema(BaseModel, allow_population_by_field_name=True):
     name: str = Field(
         ..., description=("Globally-unique name identifying this deployment.")
     )
-    num_replicas: Optional[int] = Field(
+    num_replicas: Optional[Union[int, str]] = Field(
         default=DEFAULT.VALUE,
         description=(
             "The number of processes that handle requests to this "
@@ -413,13 +413,17 @@ class DeploymentSchema(BaseModel, allow_population_by_field_name=True):
 
     @root_validator
     def num_replicas_and_autoscaling_config_mutually_exclusive(cls, values):
-        if values.get("num_replicas", None) not in [DEFAULT.VALUE, None] and values.get(
-            "autoscaling_config", None
-        ) not in [DEFAULT.VALUE, None]:
-            raise ValueError(
-                "Manually setting num_replicas is not allowed "
-                "when autoscaling_config is provided."
-            )
+        # num_replicas = values.get("num_replicas", DEFAULT.VALUE)
+        # autoscaling_config = values.get("autoscaling_config", DEFAULT.VALUE)
+
+        # if isinstance(num_replicas, int):
+        #     if autoscaling_config != DEFAULT.VALUE:
+        #         raise ValueError(
+        #             "Manually setting num_replicas is not allowed "
+        #             "when autoscaling_config is provided."
+        #         )
+        # elif num_replicas != "auto":
+        #     raise ValueError(f"Invalid value for `num_replicas`: {num_replicas}")
 
         return values
 
