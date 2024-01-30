@@ -35,6 +35,7 @@ from ray.serve._private.common import (
 from ray.serve._private.config import DeploymentConfig
 from ray.serve._private.constants import (
     MAX_DEPLOYMENT_CONSTRUCTOR_RETRY_COUNT,
+    RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE,
     RAY_SERVE_FORCE_STOP_UNHEALTHY_REPLICAS,
     REPLICA_HEALTH_CHECK_UNHEALTHY_THRESHOLD,
     SERVE_LOGGER_NAME,
@@ -1595,14 +1596,14 @@ class DeploymentState:
 
         total_requests = 0
         running_replicas = self._replicas.get([ReplicaState.RUNNING])
-        for replica in running_replicas:
-            replica_tag = replica.replica_tag
-            if replica_tag in self.replica_average_ongoing_requests:
-                total_requests += self.replica_average_ongoing_requests[replica_tag][1]
-
-        if len(running_replicas) == 0:
-            for handle_metrics in self.handle_requests.values():
-                total_requests += handle_metrics[1]
+        if RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE or len(running_replicas) == 0:
+            for handle_metric in self.handle_requests.values():
+                total_requests += handle_metric[1]
+        else:
+            for replica in running_replicas:
+                id = replica.replica_tag
+                if id in self.replica_average_ongoing_requests:
+                    total_requests += self.replica_average_ongoing_requests[id][1]
 
         return total_requests
 
@@ -1613,11 +1614,12 @@ class DeploymentState:
             return
 
         total_num_requests = self.get_total_num_requests()
+        num_running_replicas = len(self.get_running_replica_infos())
         autoscaling_policy_manager = self.autoscaling_policy_manager
         decision_num_replicas = autoscaling_policy_manager.get_decision_num_replicas(
             curr_target_num_replicas=self._target_state.target_num_replicas,
             total_num_requests=total_num_requests,
-            num_running_replicas=len(self.get_running_replica_infos()),
+            num_running_replicas=num_running_replicas,
             target_capacity=self._target_state.info.target_capacity,
             target_capacity_direction=self._target_state.info.target_capacity_direction,
         )
@@ -1631,7 +1633,8 @@ class DeploymentState:
         logger.info(
             f"Autoscaling replicas for deployment '{self.deployment_name}' in "
             f"application '{self.app_name}' to {decision_num_replicas}. "
-            f"Current number of requests: {total_num_requests}."
+            f"Current number of requests: {total_num_requests}. Current number of "
+            f"running replicas: {num_running_replicas}."
         )
 
         new_info = copy(self._target_state.info)
