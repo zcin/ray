@@ -123,6 +123,10 @@ class AutoscalingConfig(BaseModel):
     def get_downscale_smoothing_factor(self) -> PositiveFloat:
         return self.downscale_smoothing_factor or self.smoothing_factor
 
+    @classmethod
+    def default(cls):
+        return cls()
+
     # TODO(architkulkarni): implement below
     # The num_ongoing_requests_per_replica error ratio (desired / current)
     # threshold for overriding `upscale_delay_s`
