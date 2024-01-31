@@ -104,7 +104,7 @@ class DeploymentConfig(BaseModel):
             The names of options manually configured by the user.
     """
 
-    num_replicas: NonNegativeInt = Field(
+    num_replicas: Optional[NonNegativeInt] = Field(
         default=1, update_type=DeploymentOptionUpdateType.LightWeight
     )
     max_concurrent_queries: Optional[int] = Field(
