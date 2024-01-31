@@ -13,11 +13,12 @@ import ray
 from ray import serve
 from ray._private.pydantic_compat import ValidationError
 from ray._private.test_utils import SignalActor, wait_for_condition
-from ray.serve._private.common import ApplicationStatus
+from ray.serve._private.common import ApplicationStatus, DeploymentStatus
 from ray.serve._private.logging_utils import (
     get_component_log_file_name,
     get_serve_logs_dir,
 )
+from ray.serve._private.test_utils import check_deployment_status, check_num_replicas_eq
 from ray.util.state import list_actors
 
 
@@ -291,6 +292,45 @@ def test_deploy_same_deployment_name_different_app(serve_instance):
     assert app1_status.deployments["Model"].status == "HEALTHY"
     assert app2_status.status == "RUNNING"
     assert app2_status.deployments["Model"].status == "HEALTHY"
+
+
+def test_num_replicas_auto(serve_instance):
+    """Test `num_replicas="auto"`."""
+
+    signal = SignalActor.remote()
+
+    @serve.deployment(
+        num_replicas="auto",
+        autoscaling_config={
+            "metrics_interval_s": 1,
+            "upscale_delay_s": 1,
+        },
+        # We will send over a lot of queries. This will make sure replicas are
+        # killed quickly during cleanup.
+        graceful_shutdown_timeout_s=1,
+    )
+    class A:
+        async def __call__(self):
+            await signal.wait.remote()
+
+    h = serve.run(A.bind())
+    wait_for_condition(
+        check_deployment_status, name="A", expected_status=DeploymentStatus.HEALTHY
+    )
+
+    check_num_replicas_eq("A", 1)
+
+    for i in range(3):
+        [h.remote() for _ in range(2)]
+
+        def check_num_waiters(target: int):
+            assert ray.get(signal.cur_num_waiters.remote()) == target
+            return True
+
+        wait_for_condition(check_num_waiters, target=2 * (i + 1))
+        print(time.time(), f"Number of waiters on signal reached {2*(i+1)}.")
+        wait_for_condition(check_num_replicas_eq, name="A", target=i + 1)
+        print(time.time(), f"Confirmed number of replicas are at {i+1}.")
 
 
 if __name__ == "__main__":
