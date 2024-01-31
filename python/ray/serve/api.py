@@ -333,7 +333,7 @@ def deployment(
     if num_replicas == 0:
         raise ValueError("num_replicas is expected to larger than 0")
 
-    if num_replicas not in [DEFAULT.VALUE, None] and autoscaling_config not in [
+    if num_replicas not in [DEFAULT.VALUE, None, "auto"] and autoscaling_config not in [
         DEFAULT.VALUE,
         None,
     ]:
@@ -356,6 +356,23 @@ def deployment(
         )
     if isinstance(logging_config, LoggingConfig):
         logging_config = logging_config.dict()
+
+    if num_replicas == "auto":
+        num_replicas = None
+        if max_concurrent_queries is DEFAULT.VALUE:
+            max_concurrent_queries = 5
+
+        if autoscaling_config in [DEFAULT.VALUE, None]:
+            autoscaling_config = AutoscalingConfig.default()
+        else:
+            default_config = AutoscalingConfig.default().dict(exclude_unset=True)
+            autoscaling_config = (
+                autoscaling_config
+                if isinstance(autoscaling_config, dict)
+                else autoscaling_config.dict(exclude_unset=True)
+            )
+            default_config.update(autoscaling_config)
+            autoscaling_config = AutoscalingConfig(**default_config)
 
     deployment_config = DeploymentConfig.from_default(
         num_replicas=num_replicas if num_replicas is not None else 1,

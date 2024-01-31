@@ -672,11 +672,23 @@ def schema_to_deployment(s: DeploymentSchema) -> Deployment:
     else:
         max_replicas_per_node = s.max_replicas_per_node
 
+    max_concurrent_queries = s.max_concurrent_queries
+    autoscaling_config = s.autoscaling_config
+    # if s.num_replicas == "auto":
+    #     s.num_replicas = None
+    #     if s.max_concurrent_queries is DEFAULT.VALUE:
+    #         max_concurrent_queries = 5
+
+    #     autoscaling_config = AutoscalingConfig.default()
+    #     if not s.autoscaling_config is DEFAULT.VALUE:
+    #         for key, val in s.autoscaling_config.items():
+    #             autoscaling_config.__setattr__(key, val)
+
     deployment_config = DeploymentConfig.from_default(
         num_replicas=s.num_replicas,
         user_config=s.user_config,
-        max_concurrent_queries=s.max_concurrent_queries,
-        autoscaling_config=s.autoscaling_config,
+        max_concurrent_queries=max_concurrent_queries,
+        autoscaling_config=autoscaling_config,
         graceful_shutdown_wait_loop_s=s.graceful_shutdown_wait_loop_s,
         graceful_shutdown_timeout_s=s.graceful_shutdown_timeout_s,
         health_check_period_s=s.health_check_period_s,
