@@ -11,6 +11,7 @@ from ray._private.pydantic_compat import (
     BaseModel,
     Extra,
     Field,
+    PositiveInt,
     root_validator,
     validator,
     PositiveInt,

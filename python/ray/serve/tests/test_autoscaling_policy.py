@@ -25,6 +25,7 @@ from ray.serve._private.common import (
 from ray.serve._private.constants import SERVE_DEFAULT_APP_NAME, SERVE_NAMESPACE
 from ray.serve._private.controller import ServeController
 from ray.serve._private.test_utils import (
+    check_deployment_status,
     check_num_replicas_eq,
     check_num_replicas_gte,
     check_num_replicas_lte,
@@ -43,12 +44,6 @@ def get_running_replica_tags(name: str, controller: ServeController) -> List:
     )
     running_replicas = replicas.get([ReplicaState.RUNNING])
     return [replica.replica_tag for replica in running_replicas]
-
-
-def check_deployment_status(name, expected_status) -> DeploymentStatus:
-    app_status = serve.status().applications[SERVE_DEFAULT_APP_NAME]
-    assert app_status.deployments[name].status == expected_status
-    return True
 
 
 def get_deployment_start_time(controller: ServeController, name: str):
