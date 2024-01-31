@@ -24,7 +24,11 @@ from ray.serve._private.common import (
     ReplicaName,
 )
 from ray.serve._private.constants import SERVE_DEFAULT_APP_NAME, SERVE_NAMESPACE
-from ray.serve._private.test_utils import check_num_replicas_gte, check_num_replicas_lte
+from ray.serve._private.test_utils import (
+    check_num_replicas_eq,
+    check_num_replicas_gte,
+    check_num_replicas_lte,
+)
 from ray.serve.context import _get_global_client
 from ray.serve.schema import ServeDeploySchema, ServeInstanceDetails
 from ray.serve.tests.common.remote_uris import (
@@ -1234,6 +1238,48 @@ def test_change_route_prefix(client: ServeControllerClient):
         return True
 
     wait_for_condition(check_switched)
+
+
+def test_num_replicas_auto(client: ServeControllerClient):
+    """Test `num_replicas="auto"`."""
+
+    signal = SignalActor.options(name="signal123").remote()
+
+    config_template = {
+        "import_path": "ray.serve.tests.test_config_files.get_signal.app",
+        "deployments": [
+            {
+                "name": "A",
+                "num_replicas": "auto",
+                "autoscaling_config": {
+                    "metrics_interval_s": 1,
+                    "upscale_delay_s": 1,
+                },
+                "graceful_shutdown_timeout_s": 1,
+            }
+        ],
+    }
+
+    print(time.ctime(), "Deploying pid application.")
+    client.deploy_apps(ServeDeploySchema.parse_obj({"applications": [config_template]}))
+    wait_for_condition(check_running, timeout=15)
+    print(time.ctime(), "Application is RUNNING.")
+    check_num_replicas_eq("A", 1)
+
+    h = serve.get_app_handle(SERVE_DEFAULT_APP_NAME)
+    for i in range(3):
+        [h.remote() for _ in range(2)]
+
+        def check_num_waiters(target: int):
+            assert ray.get(signal.cur_num_waiters.remote()) == target
+            return True
+
+        wait_for_condition(check_num_waiters, target=2 * (i + 1))
+        print(time.time(), f"Number of waiters on signal reached {2*(i+1)}.")
+        wait_for_condition(check_num_replicas_eq, name="A", target=i + 1)
+        print(time.time(), f"Confirmed number of replicas are at {i+1}.")
+
+    signal.send.remote()
 
 
 def check_log_file(log_file: str, expected_regex: list):
