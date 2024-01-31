@@ -38,6 +38,7 @@ from ray.serve._private.utils import (
     check_obj_ref_ready_nowait,
     override_runtime_envs_except_env_vars,
 )
+from ray.serve.config import AutoscalingConfig
 from ray.serve.exceptions import RayServeException
 from ray.serve.generated.serve_pb2 import DeploymentLanguage
 from ray.serve.schema import DeploymentDetails, ServeApplicationSchema
@@ -1034,17 +1035,27 @@ def override_deployment_info(
     for options in deployment_override_options:
         deployment_name = options["name"]
         info = deployment_infos[deployment_name]
+        original_options = info.deployment_config.dict()
+        original_options["user_configured_option_names"].update(set(options))
 
-        if (
-            info.deployment_config.autoscaling_config is not None
-            and info.deployment_config.max_concurrent_queries
-            < info.deployment_config.autoscaling_config.target_num_ongoing_requests_per_replica  # noqa: E501
-        ):
-            logger.warning(
-                "Autoscaling will never happen, "
-                "because 'max_concurrent_queries' is less than "
-                "'target_num_ongoing_requests_per_replica' now."
+        if options.get("num_replicas") == "auto":
+            options["num_replicas"] = None
+            if (
+                "max_concurrent_queries"
+                not in original_options["user_configured_option_names"]
+            ):
+                options["max_concurrent_queries"] = 5
+
+            autoscaling_config = (
+                info.deployment_config.autoscaling_config or AutoscalingConfig.default()
             )
+            if "autoscaling_config" in options:
+                for key, val in options["autoscaling_config"].items():
+                    autoscaling_config.__setattr__(key, val)
+
+            options["autoscaling_config"] = autoscaling_config
+
+        print("options", options)
 
         # What to pass to info.update
         override_options = dict()
@@ -1094,11 +1105,22 @@ def override_deployment_info(
         override_options["replica_config"] = replica_config
 
         # Override deployment config options
-        original_options = info.deployment_config.dict()
         options.pop("name", None)
         original_options.update(options)
         override_options["deployment_config"] = DeploymentConfig(**original_options)
         deployment_infos[deployment_name] = info.update(**override_options)
+
+        deployment_config = deployment_infos[deployment_name].deployment_config
+        if (
+            deployment_config.autoscaling_config is not None
+            and deployment_config.max_concurrent_queries
+            < deployment_config.autoscaling_config.target_num_ongoing_requests_per_replica  # noqa: E501
+        ):
+            logger.warning(
+                "Autoscaling will never happen, "
+                "because 'max_concurrent_queries' is less than "
+                "'target_num_ongoing_requests_per_replica' now."
+            )
 
     # Overwrite ingress route prefix
     app_route_prefix = config_dict.get("route_prefix", DEFAULT.VALUE)

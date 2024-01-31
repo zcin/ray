@@ -13,6 +13,7 @@ from ray._private.pydantic_compat import (
     Field,
     root_validator,
     validator,
+    PositiveInt,
 )
 from ray._private.runtime_env.packaging import parse_uri
 from ray.serve._private.common import (
@@ -296,13 +297,12 @@ class DeploymentSchema(BaseModel, allow_population_by_field_name=True):
     name: str = Field(
         ..., description=("Globally-unique name identifying this deployment.")
     )
-    num_replicas: Optional[int] = Field(
+    num_replicas: Optional[Union[PositiveInt, str]] = Field(
         default=DEFAULT.VALUE,
         description=(
             "The number of processes that handle requests to this "
             "deployment. Uses a default if null."
         ),
-        gt=0,
     )
     # route_prefix of None means the deployment is not exposed over HTTP.
     route_prefix: Union[str, None] = Field(
@@ -413,13 +413,17 @@ class DeploymentSchema(BaseModel, allow_population_by_field_name=True):
 
     @root_validator
     def num_replicas_and_autoscaling_config_mutually_exclusive(cls, values):
-        if values.get("num_replicas", None) not in [DEFAULT.VALUE, None] and values.get(
-            "autoscaling_config", None
-        ) not in [DEFAULT.VALUE, None]:
-            raise ValueError(
-                "Manually setting num_replicas is not allowed "
-                "when autoscaling_config is provided."
-            )
+        num_replicas = values.get("num_replicas", None)
+        autoscaling_config = values.get("autoscaling_config", None)
+
+        if isinstance(num_replicas, int):
+            if autoscaling_config not in [None, DEFAULT.VALUE]:
+                raise ValueError(
+                    "Manually setting num_replicas is not allowed "
+                    "when autoscaling_config is provided."
+                )
+        elif num_replicas not in ["auto", None, DEFAULT.VALUE]:
+            raise ValueError(f"Invalid value for `num_replicas`: {num_replicas}")
 
         return values
 

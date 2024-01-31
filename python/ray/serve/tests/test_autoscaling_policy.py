@@ -205,8 +205,8 @@ def test_e2e_scale_up_down_basic(min_replicas, serve_instance):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
-@pytest.mark.parametrize("smoothing_factor", [1])  # , 0.2])
-@pytest.mark.parametrize("use_upscale_downscale_config", [True])  # , False])
+@pytest.mark.parametrize("smoothing_factor", [1, 0.2])
+@pytest.mark.parametrize("use_upscale_downscale_config", [True, False])
 def test_e2e_scale_up_down_with_0_replica(
     serve_instance, smoothing_factor, use_upscale_downscale_config
 ):
@@ -1206,6 +1206,43 @@ def test_autoscaling_status_changes(serve_instance):
     )
 
     print("Statuses are as expected.")
+
+
+def test_num_replicas_auto(serve_instance):
+    signal = SignalActor.remote()
+
+    @serve.deployment(
+        num_replicas="auto",
+        autoscaling_config={
+            "metrics_interval_s": 1,
+            "upscale_delay_s": 1,
+        },
+        # We will send over a lot of queries. This will make sure replicas are
+        # killed quickly during cleanup.
+        graceful_shutdown_timeout_s=1,
+    )
+    class A:
+        async def __call__(self):
+            await signal.wait.remote()
+
+    h = serve.run(A.bind())
+    wait_for_condition(
+        check_deployment_status, name="A", expected_status=DeploymentStatus.HEALTHY
+    )
+
+    check_num_replicas_eq("A", 1)
+
+    for i in range(3):
+        [h.remote() for _ in range(2)]
+
+        def check_num_waiters(target: int):
+            assert ray.get(signal.cur_num_waiters.remote()) == target
+            return True
+
+        wait_for_condition(check_num_waiters, target=2 * (i + 1))
+        print(time.time(), f"Number of waiters on signal reached {2*(i+1)}.")
+        wait_for_condition(check_num_replicas_eq, name="A", target=i + 1)
+        print(time.time(), f"Confirmed number of replicas are at {i+1}.")
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import ray
 from ray.serve._private.autoscaling_policy import AutoscalingPolicyManager
 from ray.serve._private.common import TargetCapacityDirection
 from ray.serve._private.config import DeploymentConfig, ReplicaConfig
+from ray.serve.config import AutoscalingConfig
 from ray.serve.generated.serve_pb2 import DeploymentInfo as DeploymentInfoProto
 from ray.serve.generated.serve_pb2 import (
     TargetCapacityDirection as TargetCapacityDirectionProto,
