@@ -301,7 +301,9 @@ class DeploymentSchema(BaseModel, allow_population_by_field_name=True):
         default=DEFAULT.VALUE,
         description=(
             "The number of processes that handle requests to this "
-            "deployment. Uses a default if null."
+            "deployment. Uses a default if null. Can also be set to "
+            "`auto` for a default autoscaling configuration "
+            "(experimental)."
         ),
     )
     # route_prefix of None means the deployment is not exposed over HTTP.
