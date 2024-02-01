@@ -13,6 +13,7 @@ from ray._private.pydantic_compat import (
     NonNegativeFloat,
     NonNegativeInt,
     PositiveFloat,
+    PositiveInt,
     validator,
 )
 from ray._private.serialization import pickle_dumps
@@ -83,7 +84,7 @@ class DeploymentConfig(BaseModel):
     Args:
         num_replicas (Optional[int]): The number of processes to start up that
             handles requests to this deployment. Defaults to 1.
-        max_concurrent_queries (Optional[int]): The maximum number of queries
+        max_concurrent_queries (int): The maximum number of queries
             that is sent to a replica of this deployment without receiving
             a response. Defaults to 100.
         user_config (Optional[Any]): Arguments to pass to the reconfigure
@@ -104,11 +105,12 @@ class DeploymentConfig(BaseModel):
             The names of options manually configured by the user.
     """
 
-    num_replicas: NonNegativeInt = Field(
+    num_replicas: Optional[NonNegativeInt] = Field(
         default=1, update_type=DeploymentOptionUpdateType.LightWeight
     )
-    max_concurrent_queries: Optional[int] = Field(
-        default=None, update_type=DeploymentOptionUpdateType.NeedsReconfigure
+    max_concurrent_queries: PositiveInt = Field(
+        default=DEFAULT_MAX_CONCURRENT_QUERIES,
+        update_type=DeploymentOptionUpdateType.NeedsReconfigure,
     )
     user_config: Any = Field(
         default=None, update_type=DeploymentOptionUpdateType.NeedsActorReconfigure
@@ -160,16 +162,6 @@ class DeploymentConfig(BaseModel):
     class Config:
         validate_assignment = True
         arbitrary_types_allowed = True
-
-    # Dynamic default for max_concurrent_queries
-    @validator("max_concurrent_queries", always=True)
-    def set_max_queries_by_mode(cls, v, values):  # noqa 805
-        if v is None:
-            v = DEFAULT_MAX_CONCURRENT_QUERIES
-        else:
-            if v <= 0:
-                raise ValueError("max_concurrent_queries must be >= 0")
-        return v
 
     @validator("user_config", always=True)
     def user_config_json_serializable(cls, v):

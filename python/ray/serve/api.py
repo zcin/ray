@@ -27,6 +27,7 @@ from ray.serve._private.utils import (
     ensure_serialization_context,
     extract_self_if_method_call,
     get_random_string,
+    handle_num_replicas_auto,
 )
 from ray.serve.config import (
     AutoscalingConfig,
@@ -243,7 +244,7 @@ def deployment(
     _func_or_class: Optional[Callable] = None,
     name: Default[str] = DEFAULT.VALUE,
     version: Default[str] = DEFAULT.VALUE,
-    num_replicas: Default[Optional[int]] = DEFAULT.VALUE,
+    num_replicas: Default[Optional[Union[int, str]]] = DEFAULT.VALUE,
     route_prefix: Default[Union[str, None]] = DEFAULT.VALUE,
     ray_actor_options: Default[Dict] = DEFAULT.VALUE,
     placement_group_bundles: Optional[List[Dict[str, float]]] = DEFAULT.VALUE,
@@ -322,6 +323,12 @@ def deployment(
     # defined in this function. It depends on the locals() dictionary storing
     # only the function args/kwargs.
     # Create list of all user-configured options from keyword args
+    if num_replicas == "auto":
+        num_replicas = None
+        max_concurrent_queries, autoscaling_config = handle_num_replicas_auto(
+            max_concurrent_queries, autoscaling_config
+        )
+
     user_configured_option_names = [
         option
         for option, value in locals().items()
@@ -333,7 +340,7 @@ def deployment(
     if num_replicas == 0:
         raise ValueError("num_replicas is expected to larger than 0")
 
-    if num_replicas not in [DEFAULT.VALUE, None] and autoscaling_config not in [
+    if num_replicas not in [DEFAULT.VALUE, None, "auto"] and autoscaling_config not in [
         DEFAULT.VALUE,
         None,
     ]:
