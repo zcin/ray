@@ -11,7 +11,10 @@ from ray import cloudpickle
 from ray._private.serialization import pickle_dumps
 from ray.dag import DAGNode
 from ray.serve._private.config import DeploymentConfig, ReplicaConfig
-from ray.serve._private.constants import SERVE_DEFAULT_APP_NAME
+from ray.serve._private.constants import (
+    NEW_DEFAULT_MAX_CONCURRENT_QUERIES,
+    SERVE_DEFAULT_APP_NAME,
+)
 from ray.serve._private.deployment_graph_build import build as pipeline_build
 from ray.serve._private.deployment_graph_build import (
     get_and_validate_ingress_deployment,
@@ -243,7 +246,7 @@ def deployment(
     _func_or_class: Optional[Callable] = None,
     name: Default[str] = DEFAULT.VALUE,
     version: Default[str] = DEFAULT.VALUE,
-    num_replicas: Default[Optional[int]] = DEFAULT.VALUE,
+    num_replicas: Default[Optional[Union[int, str]]] = DEFAULT.VALUE,
     route_prefix: Default[Union[str, None]] = DEFAULT.VALUE,
     ray_actor_options: Default[Dict] = DEFAULT.VALUE,
     placement_group_bundles: Optional[List[Dict[str, float]]] = DEFAULT.VALUE,
@@ -333,7 +336,7 @@ def deployment(
     if num_replicas == 0:
         raise ValueError("num_replicas is expected to larger than 0")
 
-    if num_replicas not in [DEFAULT.VALUE, None] and autoscaling_config not in [
+    if num_replicas not in [DEFAULT.VALUE, None, "auto"] and autoscaling_config not in [
         DEFAULT.VALUE,
         None,
     ]:
@@ -356,6 +359,27 @@ def deployment(
         )
     if isinstance(logging_config, LoggingConfig):
         logging_config = logging_config.dict()
+
+    if num_replicas == "auto":
+        num_replicas = None
+        if max_concurrent_queries is DEFAULT.VALUE:
+            max_concurrent_queries = NEW_DEFAULT_MAX_CONCURRENT_QUERIES
+
+        if autoscaling_config in [DEFAULT.VALUE, None]:
+            # If autoscaling config wasn't specified, use default
+            # configuration
+            autoscaling_config = AutoscalingConfig.default()
+        else:
+            # If autoscaling config was specified, values specified in
+            # autoscaling config overrides the default configuration
+            default_config = AutoscalingConfig.default().dict(exclude_unset=True)
+            autoscaling_config = (
+                autoscaling_config
+                if isinstance(autoscaling_config, dict)
+                else autoscaling_config.dict(exclude_unset=True)
+            )
+            default_config.update(autoscaling_config)
+            autoscaling_config = AutoscalingConfig(**default_config)
 
     deployment_config = DeploymentConfig.from_default(
         num_replicas=num_replicas if num_replicas is not None else 1,
