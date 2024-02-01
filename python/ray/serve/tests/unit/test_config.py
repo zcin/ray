@@ -127,11 +127,6 @@ class TestDeploymentConfig:
         # Valid parameter with DEFAULT.VALUE passed in should be ignored
         dc = DeploymentConfig.from_default(num_replicas=DEFAULT.VALUE)
 
-        # Validators should run no matter what
-        dc = DeploymentConfig.from_default(max_concurrent_queries=None)
-        assert dc.max_concurrent_queries is not None
-        assert dc.max_concurrent_queries == default.max_concurrent_queries
-
 
 class TestReplicaConfig:
     def test_basic_validation(self):

@@ -8,8 +8,11 @@ from ray.dag.class_node import ClassNode
 from ray.dag.dag_node import DAGNodeBase
 from ray.dag.function_node import FunctionNode
 from ray.serve._private.config import DeploymentConfig, ReplicaConfig
-from ray.serve._private.constants import SERVE_LOGGER_NAME
-from ray.serve._private.utils import DEFAULT, Default
+from ray.serve._private.constants import (
+    NEW_DEFAULT_MAX_CONCURRENT_QUERIES,
+    SERVE_LOGGER_NAME,
+)
+from ray.serve._private.utils import DEFAULT, Default, handle_num_replicas_auto
 from ray.serve.config import AutoscalingConfig
 from ray.serve.context import _get_global_client
 from ray.serve.handle import RayServeHandle, RayServeSyncHandle
@@ -345,7 +348,7 @@ class Deployment:
         func_or_class: Optional[Callable] = None,
         name: Default[str] = DEFAULT.VALUE,
         version: Default[str] = DEFAULT.VALUE,
-        num_replicas: Default[Optional[int]] = DEFAULT.VALUE,
+        num_replicas: Default[Optional[Union[int, str]]] = DEFAULT.VALUE,
         route_prefix: Default[Union[str, None]] = DEFAULT.VALUE,
         ray_actor_options: Default[Optional[Dict]] = DEFAULT.VALUE,
         placement_group_bundles: Optional[List[Dict[str, float]]] = DEFAULT.VALUE,
@@ -373,6 +376,14 @@ class Deployment:
         Refer to the `@serve.deployment` decorator docs for available arguments.
         """
 
+        # Modify max_concurrent_queries and autoscaling_config if
+        # `num_replicas="auto"`
+        if num_replicas == "auto":
+            num_replicas = None
+            max_concurrent_queries, autoscaling_config = handle_num_replicas_auto(
+                max_concurrent_queries, autoscaling_config
+            )
+
         # NOTE: The user_configured_option_names should be the first thing that's
         # defined in this method. It depends on the locals() dictionary storing
         # only the function args/kwargs.
@@ -390,7 +401,11 @@ class Deployment:
                 user_configured_option_names
             )
 
-        if num_replicas not in [DEFAULT.VALUE, None] and autoscaling_config not in [
+        if num_replicas not in [
+            DEFAULT.VALUE,
+            None,
+            "auto",
+        ] and autoscaling_config not in [
             DEFAULT.VALUE,
             None,
         ]:
@@ -416,8 +431,9 @@ class Deployment:
                 "into `serve.run` instead."
             )
 
-        if num_replicas not in [DEFAULT.VALUE, None]:
+        elif num_replicas not in [DEFAULT.VALUE, None]:
             new_deployment_config.num_replicas = num_replicas
+
         if user_config is not DEFAULT.VALUE:
             new_deployment_config.user_config = user_config
         if max_concurrent_queries is not DEFAULT.VALUE:

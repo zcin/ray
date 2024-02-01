@@ -24,7 +24,12 @@ from ray._private.worker import LOCAL_MODE, SCRIPT_MODE
 from ray._raylet import MessagePackSerializer
 from ray.actor import ActorHandle
 from ray.exceptions import RayTaskError
-from ray.serve._private.constants import HTTP_PROXY_TIMEOUT, SERVE_LOGGER_NAME
+from ray.serve._private.constants import (
+    HTTP_PROXY_TIMEOUT,
+    SERVE_LOGGER_NAME,
+    NEW_DEFAULT_MAX_CONCURRENT_QUERIES,
+)
+from ray.serve.config import AutoscalingConfig
 from ray.types import ObjectRef
 from ray.util.serialization import StandaloneSerializationContext
 
@@ -262,6 +267,33 @@ def override_runtime_envs_except_env_vars(parent_env: Dict, child_env: Dict) -> 
     defaults["env_vars"] = default_env_vars
 
     return defaults
+
+
+def handle_num_replicas_auto(max_concurrent_queries, autoscaling_config):
+    """Return modified max_concurrent_queries and autoscaling_config for
+    when num_replicas="auto".
+    """
+
+    if max_concurrent_queries is DEFAULT.VALUE:
+        max_concurrent_queries = NEW_DEFAULT_MAX_CONCURRENT_QUERIES
+
+    if autoscaling_config in [DEFAULT.VALUE, None]:
+        # If autoscaling config wasn't specified, use default
+        # configuration
+        autoscaling_config = AutoscalingConfig.default()
+    else:
+        # If autoscaling config was specified, values specified in
+        # autoscaling config overrides the default configuration
+        default_config = AutoscalingConfig.default().dict(exclude_unset=True)
+        autoscaling_config = (
+            autoscaling_config
+            if isinstance(autoscaling_config, dict)
+            else autoscaling_config.dict(exclude_unset=True)
+        )
+        default_config.update(autoscaling_config)
+        autoscaling_config = AutoscalingConfig(**default_config)
+
+    return max_concurrent_queries, autoscaling_config
 
 
 class JavaActorHandleProxy:
