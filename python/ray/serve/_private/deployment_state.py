@@ -1654,7 +1654,7 @@ class DeploymentState:
             return
 
         logger.info(
-            f"Autoscaling replicas for deployment '{self.deployment_name}' in "
+            f"Autoscalingggg replicas for deployment '{self.deployment_name}' in "
             f"application '{self.app_name}' to {decision_num_replicas}. "
             f"Current number of requests: {total_num_requests}. Current number of "
             f"running replicas: {num_running_replicas}."
