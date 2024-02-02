@@ -85,11 +85,11 @@ class MetricsPusher:
                                 ready_refs, _ = ray.wait([task.last_ref], timeout=0)
                                 if len(ready_refs) == 0:
                                     continue
-                            data = task.task_func()
+                            kwargs = task.task_func()
                             task.last_call_succeeded_time = time.time()
                             if task.callback_func and ray.is_initialized():
                                 task.last_ref = task.callback_func(
-                                    data, send_timestamp=time.time()
+                                    **kwargs, send_timestamp=time.time()
                                 )
                     except Exception as e:
                         logger.warning(
