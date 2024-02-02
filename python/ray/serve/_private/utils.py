@@ -24,7 +24,12 @@ from ray._private.worker import LOCAL_MODE, SCRIPT_MODE
 from ray._raylet import MessagePackSerializer
 from ray.actor import ActorHandle
 from ray.exceptions import RayTaskError
-from ray.serve._private.constants import HTTP_PROXY_TIMEOUT, SERVE_LOGGER_NAME
+from ray.serve._private.constants import (
+    HTTP_PROXY_TIMEOUT,
+    NEW_DEFAULT_MAX_CONCURRENT_QUERIES,
+    SERVE_LOGGER_NAME,
+)
+from ray.serve.config import AutoscalingConfig
 from ray.types import ObjectRef
 from ray.util.serialization import StandaloneSerializationContext
 
