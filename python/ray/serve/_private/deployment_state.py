@@ -332,8 +332,8 @@ class ActorReplicaWrapper:
         return self._version.deployment_config
 
     @property
-    def max_concurrent_queries(self) -> int:
-        return self.deployment_config.max_concurrent_queries
+    def max_ongoing_requests(self) -> int:
+        return self.deployment_config.max_ongoing_requests
 
     @property
     def graceful_shutdown_timeout_s(self) -> float:
@@ -911,7 +911,7 @@ class DeploymentReplica(VersionedReplica):
             node_id=self.actor_node_id,
             availability_zone=cluster_node_info_cache.get_node_az(self.actor_node_id),
             actor_handle=self._actor.actor_handle,
-            max_concurrent_queries=self._actor.max_concurrent_queries,
+            max_ongoing_requests=self._actor.max_ongoing_requests,
             is_cross_language=self._actor.is_cross_language,
             multiplexed_model_ids=self.multiplexed_model_ids,
         )
