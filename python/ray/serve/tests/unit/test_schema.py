@@ -736,7 +736,9 @@ def test_deployment_to_schema_to_deployment():
         pass
 
     deployment = schema_to_deployment(deployment_to_schema(f))
-    deployment.set_options(func_or_class="ray.serve.tests.test_schema.global_f")
+    deployment = deployment.options(
+        func_or_class="ray.serve.tests.test_schema.global_f"
+    )
 
     assert deployment.num_replicas == 3
     assert deployment.route_prefix == "/hello"
@@ -762,7 +764,9 @@ def test_unset_fields_schema_to_deployment_ray_actor_options():
         pass
 
     deployment = schema_to_deployment(deployment_to_schema(f))
-    deployment.set_options(func_or_class="ray.serve.tests.test_schema.global_f")
+    deployment = deployment.options(
+        func_or_class="ray.serve.tests.test_schema.global_f"
+    )
 
     # Serve will set num_cpus to 1 if it's not set.
     assert len(deployment.ray_actor_options) == 1
