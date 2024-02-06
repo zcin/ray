@@ -84,7 +84,7 @@ class ActorReplicaWrapper:
         obj_ref = self._actor_handle.get_num_ongoing_requests.remote()
         try:
             queue_len = await obj_ref
-            accepted = queue_len < self._replica_info.max_concurrent_queries
+            accepted = queue_len < self._replica_info.max_concurrent_requests
             return queue_len, accepted
         except asyncio.CancelledError:
             ray.cancel(obj_ref)

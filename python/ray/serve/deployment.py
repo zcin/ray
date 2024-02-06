@@ -184,8 +184,13 @@ class Deployment:
 
     @property
     def max_concurrent_queries(self) -> int:
+        """[DEPRECATED] Current max outstanding queries from each handle."""
+        return self._deployment_config.max_concurrent_requests
+
+    @property
+    def max_concurrent_requests(self) -> int:
         """Current max outstanding queries from each handle."""
-        return self._deployment_config.max_concurrent_queries
+        return self._deployment_config.max_concurrent_requests
 
     @property
     def route_prefix(self) -> Optional[str]:
@@ -357,6 +362,7 @@ class Deployment:
         max_replicas_per_node: Optional[int] = DEFAULT.VALUE,
         user_config: Default[Optional[Any]] = DEFAULT.VALUE,
         max_concurrent_queries: Default[int] = DEFAULT.VALUE,
+        max_concurrent_requests: Default[int] = DEFAULT.VALUE,
         autoscaling_config: Default[
             Union[Dict, AutoscalingConfig, None]
         ] = DEFAULT.VALUE,
@@ -377,12 +383,17 @@ class Deployment:
         Refer to the `@serve.deployment` decorator docs for available arguments.
         """
 
-        # Modify max_concurrent_queries and autoscaling_config if
+        # Modify max_concurrent_requests and autoscaling_config if
         # `num_replicas="auto"`
+        max_concurrent_requests = (
+            max_concurrent_requests
+            if max_concurrent_requests is not DEFAULT.VALUE
+            else max_concurrent_queries
+        )
         if num_replicas == "auto":
             num_replicas = None
-            max_concurrent_queries, autoscaling_config = handle_num_replicas_auto(
-                max_concurrent_queries, autoscaling_config
+            max_concurrent_requests, autoscaling_config = handle_num_replicas_auto(
+                max_concurrent_requests, autoscaling_config
             )
 
         # NOTE: The user_configured_option_names should be the first thing that's
@@ -437,8 +448,8 @@ class Deployment:
 
         if user_config is not DEFAULT.VALUE:
             new_deployment_config.user_config = user_config
-        if max_concurrent_queries is not DEFAULT.VALUE:
-            new_deployment_config.max_concurrent_queries = max_concurrent_queries
+        if max_concurrent_requests is not DEFAULT.VALUE:
+            new_deployment_config.max_concurrent_requests = max_concurrent_requests
 
         if func_or_class is None:
             func_or_class = self._replica_config.deployment_def
@@ -514,68 +525,6 @@ class Deployment:
             _internal=True,
         )
 
-    @Deprecated(
-        message=(
-            "This was intended for use with the `serve.build` Python API "
-            "(which has been deprecated). Use `.options()` instead."
-        )
-    )
-    def set_options(
-        self,
-        func_or_class: Optional[Callable] = None,
-        name: Default[str] = DEFAULT.VALUE,
-        version: Default[str] = DEFAULT.VALUE,
-        num_replicas: Default[Optional[int]] = DEFAULT.VALUE,
-        route_prefix: Default[Union[str, None]] = DEFAULT.VALUE,
-        ray_actor_options: Default[Optional[Dict]] = DEFAULT.VALUE,
-        user_config: Default[Optional[Any]] = DEFAULT.VALUE,
-        max_concurrent_queries: Default[int] = DEFAULT.VALUE,
-        autoscaling_config: Default[
-            Union[Dict, AutoscalingConfig, None]
-        ] = DEFAULT.VALUE,
-        graceful_shutdown_wait_loop_s: Default[float] = DEFAULT.VALUE,
-        graceful_shutdown_timeout_s: Default[float] = DEFAULT.VALUE,
-        health_check_period_s: Default[float] = DEFAULT.VALUE,
-        health_check_timeout_s: Default[float] = DEFAULT.VALUE,
-        _internal: bool = False,
-    ) -> None:
-        """Overwrite this deployment's options in-place.
-
-        Only those options passed in will be updated, all others will remain
-        unchanged.
-
-        Refer to the @serve.deployment decorator docstring for all non-private
-        arguments.
-        """
-        if not _internal:
-            warnings.warn(
-                "`.set_options()` is deprecated. "
-                "Use `.options()` or an application builder function instead."
-            )
-
-        validated = self.options(
-            func_or_class=func_or_class,
-            name=name,
-            version=version,
-            route_prefix=route_prefix,
-            num_replicas=num_replicas,
-            ray_actor_options=ray_actor_options,
-            user_config=user_config,
-            max_concurrent_queries=max_concurrent_queries,
-            autoscaling_config=autoscaling_config,
-            graceful_shutdown_wait_loop_s=graceful_shutdown_wait_loop_s,
-            graceful_shutdown_timeout_s=graceful_shutdown_timeout_s,
-            health_check_period_s=health_check_period_s,
-            health_check_timeout_s=health_check_timeout_s,
-            _internal=_internal,
-        )
-
-        self._name = validated._name
-        self._version = validated._version
-        self._route_prefix = validated._route_prefix
-        self._deployment_config = validated._deployment_config
-        self._replica_config = validated._replica_config
-
     def __eq__(self, other):
         return all(
             [
@@ -626,6 +575,7 @@ def deployment_to_schema(
         if d._deployment_config.autoscaling_config
         else d.num_replicas,
         "max_concurrent_queries": d.max_concurrent_queries,
+        "max_concurrent_requests": d.max_concurrent_requests,
         "user_config": d.user_config,
         "autoscaling_config": d._deployment_config.autoscaling_config,
         "graceful_shutdown_wait_loop_s": d._deployment_config.graceful_shutdown_wait_loop_s,  # noqa: E501
@@ -692,7 +642,7 @@ def schema_to_deployment(s: DeploymentSchema) -> Deployment:
     deployment_config = DeploymentConfig.from_default(
         num_replicas=s.num_replicas,
         user_config=s.user_config,
-        max_concurrent_queries=s.max_concurrent_queries,
+        max_concurrent_requests=s.max_concurrent_requests or s.max_concurrent_queries,
         autoscaling_config=s.autoscaling_config,
         graceful_shutdown_wait_loop_s=s.graceful_shutdown_wait_loop_s,
         graceful_shutdown_timeout_s=s.graceful_shutdown_timeout_s,
