@@ -699,7 +699,7 @@ def test_update_config_max_concurrent_queries(client: ServeControllerClient):
 
     all_replicas = ray.get(client._controller._all_running_replicas.remote())
     assert len(all_replicas) == 1
-    assert all_replicas[list(all_replicas.keys())[0]][0].max_concurrent_queries == 1000
+    assert all_replicas[list(all_replicas.keys())[0]][0].max_ongoing_requests == 1000
 
     handle = serve.get_app_handle(SERVE_DEFAULT_APP_NAME)
 
