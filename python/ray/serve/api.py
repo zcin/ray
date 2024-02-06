@@ -15,7 +15,11 @@ from ray.serve._private.config import (
     ReplicaConfig,
     handle_num_replicas_auto,
 )
-from ray.serve._private.constants import SERVE_DEFAULT_APP_NAME
+from ray.serve._private.constants import (
+    DEFAULT_MAX_CONCURRENT_QUERIES,
+    NEW_DEFAULT_MAX_CONCURRENT_QUERIES,
+    SERVE_DEFAULT_APP_NAME,
+)
 from ray.serve._private.deployment_graph_build import build as pipeline_build
 from ray.serve._private.deployment_graph_build import (
     get_and_validate_ingress_deployment,
@@ -364,6 +368,14 @@ def deployment(
             "deprecated. To specify a route prefix for an application, pass it into "
             "`serve.run` instead."
         )
+
+    if max_concurrent_queries is DEFAULT.VALUE:
+        logger.warning(
+            "The default value for `max_concurrent_queries` is currently "
+            f"{DEFAULT_MAX_CONCURRENT_QUERIES}, but will change to "
+            f"{NEW_DEFAULT_MAX_CONCURRENT_QUERIES} in the next upcoming release."
+        )
+
     if isinstance(logging_config, LoggingConfig):
         logging_config = logging_config.dict()
 
