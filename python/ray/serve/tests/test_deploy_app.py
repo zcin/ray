@@ -685,12 +685,12 @@ def test_update_config_graceful_shutdown_timeout(client: ServeControllerClient):
     )
 
 
-def test_update_config_max_concurrent_queries(client: ServeControllerClient):
-    """Check that replicas stay alive when max_concurrent_queries is updated."""
+def test_update_config_max_ongoing_requests(client: ServeControllerClient):
+    """Check that replicas stay alive when max_ongoing_requests is updated."""
 
     config_template = {
         "import_path": "ray.serve.tests.test_config_files.pid.node",
-        "deployments": [{"name": "f", "max_concurrent_queries": 1000}],
+        "deployments": [{"name": "f", "max_ongoing_requests": 1000}],
     }
 
     # Deploy first time, max_concurent_queries set to 1000.
@@ -708,7 +708,7 @@ def test_update_config_max_concurrent_queries(client: ServeControllerClient):
     assert len(pids1) == 1
 
     # Redeploy with max concurrent queries set to 2.
-    config_template["deployments"][0]["max_concurrent_queries"] = 2
+    config_template["deployments"][0]["max_ongoing_requests"] = 2
     client.deploy_apps(ServeDeploySchema.parse_obj({"applications": [config_template]}))
     wait_for_condition(check_running, timeout=15)
 
@@ -719,7 +719,7 @@ def test_update_config_max_concurrent_queries(client: ServeControllerClient):
 
 
 def test_update_config_health_check_period(client: ServeControllerClient):
-    """Check that replicas stay alive when max_concurrent_queries is updated."""
+    """Check that replicas stay alive when max_ongoing_requests is updated."""
 
     config_template = {
         "import_path": "ray.serve.tests.test_config_files.pid.async_node",
@@ -757,7 +757,7 @@ def test_update_config_health_check_period(client: ServeControllerClient):
 
 
 def test_update_config_health_check_timeout(client: ServeControllerClient):
-    """Check that replicas stay alive when max_concurrent_queries is updated."""
+    """Check that replicas stay alive when max_ongoing_requests is updated."""
 
     # Deploy with a very long initial health_check_timeout_s
     # Also set small health_check_period_s to make test run faster
@@ -1271,7 +1271,7 @@ def test_num_replicas_auto(client: ServeControllerClient):
     deployment_config = app_details["deployments"]["A"]["deployment_config"]
     # Set by `num_replicas="auto"`
     assert "num_replicas" not in deployment_config
-    assert deployment_config["max_concurrent_queries"] == 5
+    assert deployment_config["max_ongoing_requests"] == 5
     assert deployment_config["autoscaling_config"] == {
         # Set by `num_replicas="auto"`
         "target_num_ongoing_requests_per_replica": 2.0,
