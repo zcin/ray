@@ -212,7 +212,7 @@ class Router:
                 # If data hasn't been recorded yet, return current
                 # number of queued and ongoing requests.
                 or num_requests
-                for replica_id, num_requests in self.num_requests_sent_to_replicas.items()  # noqa: E501
+                for replica_id, num_requests in list(self.num_requests_sent_to_replicas.items())  # noqa: E501
             }
 
         return {
