@@ -15,7 +15,7 @@ from ray.serve._private.constants import (
     HANDLE_METRIC_PUSH_INTERVAL_S,
     RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE,
     RAY_SERVE_ENABLE_QUEUE_LENGTH_CACHE,
-    RAY_SERVE_ENABLE_STRICT_MAX_CONCURRENT_QUERIES,
+    RAY_SERVE_ENABLE_STRICT_MAX_ONGOING_REQUESTS,
     RAY_SERVE_PROXY_PREFER_LOCAL_AZ_ROUTING,
     SERVE_LOGGER_NAME,
 )
@@ -301,7 +301,7 @@ class Router:
         # then directly send the query and hand the response back. The replica will
         # never reject requests in this code path.
         if (
-            not RAY_SERVE_ENABLE_STRICT_MAX_CONCURRENT_QUERIES
+            not RAY_SERVE_ENABLE_STRICT_MAX_ONGOING_REQUESTS
             or replica.is_cross_language
         ):
             return replica.send_request(pr), replica_id

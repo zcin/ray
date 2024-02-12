@@ -97,8 +97,8 @@ DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_S = 20
 DEFAULT_GRACEFUL_SHUTDOWN_WAIT_LOOP_S = 2
 DEFAULT_HEALTH_CHECK_PERIOD_S = 10
 DEFAULT_HEALTH_CHECK_TIMEOUT_S = 30
-DEFAULT_MAX_CONCURRENT_QUERIES = 100
-NEW_DEFAULT_MAX_CONCURRENT_QUERIES = 5
+DEFAULT_MAX_ONGOING_REQUESTS = 100
+NEW_DEFAULT_MAX_ONGOING_REQUESTS = 5
 
 # HTTP Proxy health check configs
 PROXY_HEALTH_CHECK_TIMEOUT_S = (
@@ -222,8 +222,7 @@ RAY_SERVE_HTTP_PROXY_CALLBACK_IMPORT_PATH = os.environ.get(
 RAY_SERVE_CONTROLLER_CALLBACK_IMPORT_PATH = os.environ.get(
     "RAY_SERVE_CONTROLLER_CALLBACK_IMPORT_PATH", None
 )
-# Serve gauge metric set period.
-RAY_SERVE_GAUGE_METRIC_SET_PERIOD_S = 1
+
 # How often autoscaling metrics are recorded on Serve replicas.
 RAY_SERVE_REPLICA_AUTOSCALING_METRIC_RECORD_PERIOD_S = 0.5
 
@@ -277,10 +276,10 @@ RAY_SERVE_ENABLE_QUEUE_LENGTH_CACHE = (
     os.environ.get("RAY_SERVE_ENABLE_QUEUE_LENGTH_CACHE", "0") == "1"
 )
 
-# Feature flag for strictly enforcing max_concurrent_queries (replicas will reject
+# Feature flag for strictly enforcing max_ongoing_requests (replicas will reject
 # requests).
-RAY_SERVE_ENABLE_STRICT_MAX_CONCURRENT_QUERIES = (
-    os.environ.get("RAY_SERVE_ENABLE_STRICT_MAX_CONCURRENT_QUERIES", "0") == "1"
+RAY_SERVE_ENABLE_STRICT_MAX_ONGOING_REQUESTS = (
+    os.environ.get("RAY_SERVE_ENABLE_STRICT_MAX_ONGOING_REQUESTS", "0") == "1"
     # Strict enforcement path must be enabled for the queue length cache.
     or RAY_SERVE_ENABLE_QUEUE_LENGTH_CACHE
 )
@@ -297,4 +296,9 @@ DEFAULT_AUTOSCALING_POLICY = "ray.serve.autoscaling_policy:default_autoscaling_p
 # metrics at handles instead of replicas. OFF by default.
 RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE = (
     os.environ.get("RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE", "0") == "1"
+)
+
+# Feature flag to always run a proxy on the head node even if it has no replicas.
+RAY_SERVE_ALWAYS_RUN_PROXY_ON_HEAD_NODE = (
+    os.environ.get("RAY_SERVE_ALWAYS_RUN_PROXY_ON_HEAD_NODE", "1") == "1"
 )

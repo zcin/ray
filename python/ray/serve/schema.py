@@ -318,7 +318,15 @@ class DeploymentSchema(BaseModel, allow_population_by_field_name=True):
     max_concurrent_queries: int = Field(
         default=DEFAULT.VALUE,
         description=(
-            "The max number of pending queries in a single replica. "
+            "[DEPRECATED] The max number of pending queries in a single replica. "
+            "Uses a default if null."
+        ),
+        gt=0,
+    )
+    max_ongoing_requests: int = Field(
+        default=DEFAULT.VALUE,
+        description=(
+            "The max number of pending requests in a single replica. "
             "Uses a default if null."
         ),
         gt=0,
@@ -462,7 +470,8 @@ def _deployment_info_to_schema(name: str, info: DeploymentInfo) -> DeploymentSch
 
     schema = DeploymentSchema(
         name=name,
-        max_concurrent_queries=info.deployment_config.max_concurrent_queries,
+        max_concurrent_queries=info.deployment_config.max_ongoing_requests,
+        max_ongoing_requests=info.deployment_config.max_ongoing_requests,
         user_config=info.deployment_config.user_config,
         graceful_shutdown_wait_loop_s=(
             info.deployment_config.graceful_shutdown_wait_loop_s
