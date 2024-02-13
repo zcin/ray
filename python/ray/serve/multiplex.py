@@ -134,7 +134,7 @@ class _ModelMultiplexWrapper:
         try:
             self.num_models_gauge.set(len(self.models))
 
-            for model_id in self.models:
+            for model_id in list(self.models.keys()):
                 self.registered_model_gauge.set(1, tags={"model_id": model_id})
 
             if self._push_multiplexed_replica_info:
