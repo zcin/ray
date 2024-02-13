@@ -104,11 +104,13 @@ class ReplicaMetricsManager:
         self,
         replica_tag: ReplicaTag,
         deployment_id: DeploymentID,
+        event_loop: asyncio.BaseEventLoop,
         autoscaling_config: Optional[AutoscalingConfig],
     ):
         self._replica_tag = replica_tag
         self._deployment_id = deployment_id
-        self._metrics_pusher = MetricsPusher()
+        self._event_loop = event_loop
+        self._metrics_pusher = MetricsPusher(event_loop)
         self._metrics_store = InMemoryMetricsStore()
         self._autoscaling_config = autoscaling_config
         self._controller_handle = ray.get_actor(
@@ -156,10 +158,6 @@ class ReplicaMetricsManager:
 
         self.set_autoscaling_config(autoscaling_config)
 
-    def start(self):
-        """Start periodic background tasks."""
-        self._metrics_pusher.start()
-
     def shutdown(self):
         """Stop periodic background tasks."""
         self._metrics_pusher.shutdown()
@@ -173,6 +171,8 @@ class ReplicaMetricsManager:
             not RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE
             and self._autoscaling_config
         ):
+            self._metrics_pusher.start()
+
             # Push autoscaling metrics to the controller periodically.
             self._metrics_pusher.register_or_update_task(
                 self.PUSH_METRICS_TO_CONTROLLER_TASK_NAME,
@@ -279,9 +279,11 @@ class ReplicaActor:
         self._set_internal_replica_context(servable_object=None)
 
         self._metrics_manager = ReplicaMetricsManager(
-            replica_tag, deployment_id, self._deployment_config.autoscaling_config
+            replica_tag,
+            deployment_id,
+            self._event_loop,
+            self._deployment_config.autoscaling_config,
         )
-        self._metrics_manager.start()
 
     def _set_internal_replica_context(self, *, servable_object: Callable = None):
         ray.serve.context._set_internal_replica_context(

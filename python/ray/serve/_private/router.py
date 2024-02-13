@@ -37,9 +37,16 @@ class RouterMetricsManager:
     PUSH_METRICS_TO_CONTROLLER_TASK_NAME = "push_metrics_to_controller"
     RECORD_METRICS_TASK_NAME = "record_metrics"
 
-    def __init__(self, deployment_id: DeploymentID, handle_id: str, controller_handle):
+    def __init__(
+        self,
+        deployment_id: DeploymentID,
+        handle_id: str,
+        event_loop: asyncio.BaseEventLoop,
+        controller_handle,
+    ):
         self._deployment_id = deployment_id
         self._handle_id = handle_id
+        self._event_loop = event_loop
         self._controller_handle = controller_handle
 
         # Exported metrics
@@ -73,7 +80,7 @@ class RouterMetricsManager:
         # this thread-safe lock.
         self._queries_lock = threading.Lock()
         # Regularly aggregate and push autoscaling metrics to controller
-        self.metrics_pusher = MetricsPusher()
+        self.metrics_pusher = MetricsPusher(event_loop)
         self.metrics_store = InMemoryMetricsStore()
         self.autoscaling_config = None
 
@@ -104,6 +111,7 @@ class RouterMetricsManager:
 
         # Start the metrics pusher if autoscaling is enabled.
         if self.autoscaling_config:
+            self.metrics_pusher.start()
             # Optimization for autoscaling cold start time. If there are
             # currently 0 replicas for the deployment, and there is at
             # least one queued request on this router, then immediately
@@ -132,7 +140,6 @@ class RouterMetricsManager:
                     HANDLE_METRIC_PUSH_INTERVAL_S,
                 )
 
-            self.metrics_pusher.start()
         else:
             if self.metrics_pusher:
                 self.metrics_pusher.shutdown()
@@ -211,8 +218,10 @@ class RouterMetricsManager:
         The metrics_pusher needs to be shutdown separately.
         """
 
-        if self.metrics_pusher:
-            self.metrics_pusher.shutdown()
+        print("router metrics manager shutdown")
+        pass
+        # if self.metrics_pusher:
+        #     self.metrics_pusher.shutdown()
 
 
 class Router:
@@ -273,7 +282,7 @@ class Router:
 
         # For autoscaling deployments.
         self._metrics_manager = RouterMetricsManager(
-            deployment_id, handle_id, controller_handle
+            deployment_id, handle_id, event_loop, controller_handle
         )
 
     def update_running_replicas(self, running_replicas: List[RunningReplicaInfo]):
@@ -432,5 +441,10 @@ class Router:
             # is correctly decremented in this case.
             self._metrics_manager.dec_num_queued_requests()
 
-    def shutdown(self):
-        self._metrics_manager.shutdown()
+    async def shutdown(self):
+        print("router shutdown")
+        pass
+        # await self._metrics_manager.shutdown()
+        # asyncio.run_coroutine_threadsafe(
+        #     self._metrics_manager.shutdown, self._event_loop
+        # )
