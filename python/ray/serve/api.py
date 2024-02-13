@@ -372,6 +372,13 @@ def deployment(
             "deprecated. To specify a route prefix for an application, pass it into "
             "`serve.run` instead."
         )
+
+    if max_concurrent_queries is not DEFAULT.VALUE:
+        logger.warning(
+            "DeprecationWarning: `max_concurrent_queries` in `@serve.deployment` has "
+            "been deprecated and replaced by `max_ongoing_requests`."
+        )
+
     if isinstance(logging_config, LoggingConfig):
         logging_config = logging_config.dict()
 

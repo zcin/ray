@@ -398,6 +398,12 @@ class Deployment:
                 "into `serve.run` instead."
             )
 
+        if not _internal and max_concurrent_queries is not DEFAULT.VALUE:
+            logger.warning(
+                "DeprecationWarning: `max_concurrent_queries` in `@serve.deployment` "
+                "has been deprecated and replaced by `max_ongoing_requests`."
+            )
+
         elif num_replicas not in [DEFAULT.VALUE, None]:
             new_deployment_config.num_replicas = num_replicas
 
