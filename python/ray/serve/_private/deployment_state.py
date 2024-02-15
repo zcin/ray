@@ -1879,13 +1879,7 @@ class DeploymentState:
             return (upscale, downscale)
 
         elif delta_replicas > 0:
-            # Don't ever exceed self._target_state.target_num_replicas.
-            stopping_replicas = self._replicas.count(
-                states=[
-                    ReplicaState.STOPPING,
-                ]
-            )
-            to_add = max(delta_replicas - stopping_replicas, 0)
+            to_add = delta_replicas
             if to_add > 0:
                 # Exponential backoff
                 failed_to_start_threshold = min(
