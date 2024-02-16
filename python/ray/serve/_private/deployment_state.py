@@ -37,6 +37,7 @@ from ray.serve._private.constants import (
     MAX_DEPLOYMENT_CONSTRUCTOR_RETRY_COUNT,
     RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE,
     RAY_SERVE_FORCE_STOP_UNHEALTHY_REPLICAS,
+    RAY_SERVE_STOP_FULLY_THEN_START_REPLICAS,
     REPLICA_HEALTH_CHECK_UNHEALTHY_THRESHOLD,
     SERVE_LOGGER_NAME,
     SERVE_NAMESPACE,
@@ -1879,13 +1880,16 @@ class DeploymentState:
             return (upscale, downscale)
 
         elif delta_replicas > 0:
-            # Don't ever exceed self._target_state.target_num_replicas.
-            stopping_replicas = self._replicas.count(
-                states=[
-                    ReplicaState.STOPPING,
-                ]
-            )
-            to_add = max(delta_replicas - stopping_replicas, 0)
+            to_add = delta_replicas
+            if RAY_SERVE_STOP_FULLY_THEN_START_REPLICAS:
+                # Don't ever exceed target_num_replicas.
+                stopping_replicas = self._replicas.count(
+                    states=[
+                        ReplicaState.STOPPING,
+                    ]
+                )
+                to_add = max(delta_replicas - stopping_replicas, 0)
+
             if to_add > 0:
                 # Exponential backoff
                 failed_to_start_threshold = min(
