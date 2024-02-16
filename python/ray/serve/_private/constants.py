@@ -306,3 +306,8 @@ SERVE_GRPC_OPTIONS = [
     ("grpc.max_send_message_length", RAY_SERVE_GRPC_MAX_MESSAGE_SIZE),
     ("grpc.max_receive_message_length", RAY_SERVE_GRPC_MAX_MESSAGE_SIZE),
 ]
+
+# Feature flag to wait for replicas to fully stop before starting new replicas
+RAY_SERVE_STOP_FULLY_THEN_START_REPLICAS = (
+    os.environ.get("RAY_SERVE_STOP_FULLY_THEN_START_REPLICAS", "0") == "1"
+)
