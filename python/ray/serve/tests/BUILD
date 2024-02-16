@@ -202,3 +202,18 @@ py_test_module_list(
   deps = ["//python/ray/serve:serve_lib", ":conftest", ":common"],
   data = glob(["test_config_files/**/*"]),
 )
+
+# Test old stop-fully-then-start behavior
+# TODO(zcin): remove after the old behavior is completely removed.
+py_test_module_list(
+  name_suffix="_with_stop_fully_then_start_behavior",
+  env={"RAY_SERVE_STOP_FULLY_THEN_START_REPLICAS": "1"},
+  files = [
+    "test_deployment_state.py",
+    "test_controller_recovery.py",
+  ],
+  size = "medium",
+  tags = ["exclusive", "no_windows", "team:serve"],
+  deps = ["//python/ray/serve:serve_lib", ":conftest", ":common"],
+  data = glob(["test_config_files/**/*"]),
+)
