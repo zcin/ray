@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import ray
 from ray._raylet import GcsClient
@@ -53,7 +53,7 @@ class ClusterNodeInfoCache(ABC):
         return {node_id for node_id, _ in self.get_alive_nodes()}
 
     @abstractmethod
-    def get_draining_node_ids(self) -> Set[str]:
+    def get_draining_node_ids(self) -> Dict[str, int]:
         """Get IDs of all draining nodes in the cluster."""
         raise NotImplementedError
 
@@ -74,8 +74,8 @@ class DefaultClusterNodeInfoCache(ClusterNodeInfoCache):
     def __init__(self, gcs_client: GcsClient):
         super().__init__(gcs_client)
 
-    def get_draining_node_ids(self) -> Set[str]:
-        return set()
+    def get_draining_node_ids(self) -> Dict[str, int]:
+        return dict()
 
     def get_node_az(self, node_id: str) -> Optional[str]:
         """Get availability zone of a node."""

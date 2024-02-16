@@ -2240,7 +2240,7 @@ class DeploymentState:
     def _stop_replicas_on_draining_nodes(self):
         draining_nodes = self._cluster_node_info_cache.get_draining_node_ids()
         for replica in self._replicas.pop(
-            states=[ReplicaState.UPDATING, ReplicaState.RUNNING]
+            states=[ReplicaState.UPDATING, ReplicaState.RUNNING, ReplicaState.STARTING]
         ):
             if replica.actor_node_id in draining_nodes:
                 state = replica._actor_details.state
@@ -2249,9 +2249,39 @@ class DeploymentState:
                     f"of deployment '{self.deployment_name}' in application "
                     f"'{self.app_name}' on draining node {replica.actor_node_id}."
                 )
-                self._stop_replica(replica, graceful_stop=True)
+                self._replicas.add(ReplicaState.TO_BE_STOPPED, replica)
             else:
                 self._replicas.add(replica.actor_details.state, replica)
+
+        # Stop replicas whose deadline is up
+        for replica in self._replicas.pop(states=[ReplicaState.TO_BE_STOPPED]):
+            current_timestamp_ms = time.time() * 1000
+            timeout_ms = replica._actor.graceful_shutdown_timeout_s * 1000
+            print("current timestamp", current_timestamp_ms)
+            print("deadline", draining_nodes[replica.actor_node_id])
+            print("timeout", timeout_ms)
+            if (
+                replica.actor_node_id in draining_nodes
+                and draining_nodes[replica.actor_node_id] > 0
+                and current_timestamp_ms
+                >= draining_nodes[replica.actor_node_id] - timeout_ms
+            ):
+                self._stop_replica(replica, graceful_stop=True)
+            else:
+                self._replicas.add(ReplicaState.TO_BE_STOPPED, replica)
+
+        # Stop excess replicas
+        # TODO(zcin): greedily choose replicas with the earliest deadlines
+        num_running_or_towards_running = self._replicas.count(
+            states=[ReplicaState.RUNNING]
+        )
+        num_to_be_stopped = self._replicas.count(states=[ReplicaState.TO_BE_STOPPED])
+        num_excess = num_running_or_towards_running - num_to_be_stopped
+
+        for replica in self._replicas.pop(
+            states=[ReplicaState.TO_BE_STOPPED], max_replicas=num_excess
+        ):
+            self._stop_replica(replica, graceful_stop=True)
 
     def update(self) -> DeploymentStateUpdateResult:
         """Attempts to reconcile this deployment to match its goal state.
