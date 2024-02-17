@@ -211,6 +211,8 @@ py_test_module_list(
   files = [
     "test_deployment_state.py",
     "test_controller_recovery.py",
+    "test_deploy.py",
+    "test_max_replicas_per_node.py",
   ],
   size = "medium",
   tags = ["exclusive", "no_windows", "team:serve"],
