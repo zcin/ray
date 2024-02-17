@@ -61,6 +61,7 @@ class ReplicaState(str, Enum):
     RECOVERING = "RECOVERING"
     RUNNING = "RUNNING"
     STOPPING = "STOPPING"
+    TO_BE_STOPPED = "TO_BE_STOPPED"
 
 
 class ApplicationStatus(str, Enum):
