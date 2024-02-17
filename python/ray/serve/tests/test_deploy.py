@@ -13,6 +13,7 @@ from ray._private.pydantic_compat import ValidationError
 from ray._private.test_utils import SignalActor
 from ray.serve._private.utils import get_random_string
 from ray.serve.exceptions import RayServeException
+from ray.serve._private.constants import RAY_SERVE_STOP_FULLY_THEN_START_REPLICAS
 
 
 @pytest.mark.parametrize("use_handle", [True, False])
@@ -153,15 +154,25 @@ def test_redeploy_single_replica(serve_instance, use_handle):
     start = time.time()
     while time.time() - start < 30:
         ready, _ = ray.wait([call.remote()], timeout=2)
-        # If the request doesn't block, it must be V2 which doesn't wait
-        # for signal. Otherwise, it must have been sent to V1 which
-        # waits on signal The request might have been sent to V1 if the
-        # long poll broadcast was delayed
-        if len(ready) == 1:
-            val, pid = ray.get(ready[0])
-            assert val == 2
-            assert pid != pid1
-            break
+        if RAY_SERVE_STOP_FULLY_THEN_START_REPLICAS:
+            # Any requests that go through during this time should have
+            # been sent to replicas of the old version
+            if len(ready) == 1:
+                val, pid = ray.get(ready[0])
+                assert val == 1
+                assert pid == pid1
+            else:
+                break
+        else:
+            # If the request doesn't block, it must be V2 which doesn't wait
+            # for signal. Otherwise, it must have been sent to V1 which
+            # waits on signal The request might have been sent to V1 if the
+            # long poll broadcast was delayed
+            if len(ready) == 1:
+                val, pid = ray.get(ready[0])
+                assert val == 2
+                assert pid != pid1
+                break
     else:
         assert False, "Timed out waiting for new version to be called."
 
