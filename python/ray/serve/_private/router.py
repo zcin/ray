@@ -42,10 +42,12 @@ class RouterMetricsManager:
         self,
         deployment_id: DeploymentID,
         handle_id: str,
+        event_loop: asyncio.BaseEventLoop,
         controller_handle: ActorHandle,
     ):
         self._deployment_id = deployment_id
         self._handle_id = handle_id
+        self._event_loop = event_loop
         self._controller_handle = controller_handle
 
         # Exported metrics
@@ -80,7 +82,7 @@ class RouterMetricsManager:
         # this thread-safe lock.
         self._queries_lock = threading.Lock()
         # Regularly aggregate and push autoscaling metrics to controller
-        self.metrics_pusher = MetricsPusher()
+        self.metrics_pusher = MetricsPusher(event_loop)
         self.metrics_store = InMemoryMetricsStore()
         self.deployment_config = None
 
@@ -119,6 +121,7 @@ class RouterMetricsManager:
         # Start the metrics pusher if autoscaling is enabled.
         autoscaling_config: AutoscalingConfig = self.curr_autoscaling_config
         if autoscaling_config:
+            self.metrics_pusher.start()
             # Optimization for autoscaling cold start time. If there are
             # currently 0 replicas for the deployment, and there is at
             # least one queued request on this router, then immediately
@@ -147,7 +150,6 @@ class RouterMetricsManager:
                     HANDLE_METRIC_PUSH_INTERVAL_S,
                 )
 
-            self.metrics_pusher.start()
         else:
             if self.metrics_pusher:
                 self.metrics_pusher.shutdown()
@@ -226,7 +228,10 @@ class RouterMetricsManager:
         """
 
         if self.metrics_pusher:
-            self.metrics_pusher.shutdown()
+            fut = asyncio.run_coroutine_threadsafe(
+                self.metrics_pusher.shutdown(), loop=self._event_loop
+            )
+            fut.result()
 
 
 class Router:
@@ -306,7 +311,7 @@ class Router:
         )
 
         self._metrics_manager = RouterMetricsManager(
-            deployment_id, handle_id, controller_handle
+            deployment_id, handle_id, event_loop, controller_handle
         )
 
     def update_running_replicas(self, running_replicas: List[RunningReplicaInfo]):
