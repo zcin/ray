@@ -1,4 +1,5 @@
 load("//bazel:python.bzl", "py_test_run_all_subdirectory")
+load("//bazel:python.bzl", "py_test_module_list")
 
 py_library(
   name = "conftest",
