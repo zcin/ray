@@ -24,7 +24,7 @@ class TestMetricsPusher:
         MetricsPusher.NO_TASKS_REGISTERED_INTERVAL_S = 0.01
         metrics_pusher = MetricsPusher()
         metrics_pusher.start()
-        assert len(metrics_pusher.tasks) == 0
+        assert len(metrics_pusher._tasks) == 0
         assert metrics_pusher.pusher_thread.is_alive()
 
         metrics_pusher.register_or_update_task("inc", inc, 0.01)
