@@ -1,7 +1,7 @@
 import asyncio
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import grpc
 import pytest
@@ -335,3 +335,23 @@ class FakeGrpcContext:
 
     def invocation_metadata(self):
         return self._invocation_metadata
+
+
+class FakeGauge:
+    def __init__(self):
+        self.value = None
+        self.tags = None
+
+    def set(self, value: Union[int, float], tags: Dict[str, str] = None):
+        self.value = value
+        self.tags = tags
+
+
+class FakeCounter:
+    def __init__(self):
+        self.count = 0
+        self.tags = None
+    
+    def inc(self, value: Union[int, float] = 1.0, tags: Dict[str, str] = None):
+        self.count += value
+        self.tags = tags
