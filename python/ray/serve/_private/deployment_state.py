@@ -2245,20 +2245,64 @@ class DeploymentState:
                     del self.replica_average_ongoing_requests[replica.replica_tag]
 
     def _stop_replicas_on_draining_nodes(self):
-        draining_nodes = self._cluster_node_info_cache.get_draining_node_ids()
+        draining_node_deadlines = self._cluster_node_info_cache.get_draining_node_ids()
         for replica in self._replicas.pop(
-            states=[ReplicaState.UPDATING, ReplicaState.RUNNING]
+            states=[ReplicaState.UPDATING, ReplicaState.RUNNING, ReplicaState.STARTING]
         ):
-            if replica.actor_node_id in draining_nodes:
-                state = replica._actor_details.state
+            if replica.actor_node_id in draining_node_deadlines:
+                self._replicas.add(ReplicaState.DRAINING, replica)
+            else:
+                self._replicas.add(replica.actor_details.state, replica)
+
+        # Stop replicas whose deadline is up
+        for replica in self._replicas.pop(states=[ReplicaState.DRAINING]):
+            current_timestamp_ms = time.time() * 1000
+            timeout_ms = replica._actor.graceful_shutdown_timeout_s * 1000
+            if (
+                replica.actor_node_id in draining_node_deadlines
+                and draining_node_deadlines[replica.actor_node_id] > 0
+                and current_timestamp_ms
+                >= draining_node_deadlines[replica.actor_node_id] - timeout_ms
+            ):
                 logger.info(
-                    f"Stopping replica {replica.replica_tag} (currently {state}) "
+                    f"Stopping replica {replica.replica_tag} "
                     f"of deployment '{self.deployment_name}' in application "
                     f"'{self.app_name}' on draining node {replica.actor_node_id}."
                 )
                 self._stop_replica(replica, graceful_stop=True)
             else:
-                self._replicas.add(replica.actor_details.state, replica)
+                self._replicas.add(ReplicaState.DRAINING, replica)
+
+        # Stop excess DRAINING replicas when new "replacement" replicas
+        # have transitioned to RUNNING.
+        num_running = self._replicas.count(states=[ReplicaState.RUNNING])
+        num_draining = self._replicas.count(states=[ReplicaState.DRAINING])
+        num_excess = num_running + num_draining - self._target_state.target_num_replicas
+
+        draining_replicas = self._replicas.pop(states=[ReplicaState.DRAINING])
+
+        # Greedily choose replicas that have the earliest deadline
+        def order(deadline: int):
+            if deadline:
+                return deadline
+            else:
+                return float("inf")
+
+        draining_replicas.sort(
+            key=lambda r: order(draining_node_deadlines[r.actor_node_id])
+        )
+        for replica in draining_replicas:
+            if num_excess <= 0:
+                self._replicas.add(ReplicaState.DRAINING, replica)
+                continue
+
+            logger.info(
+                f"Stopping replica {replica.replica_tag} "
+                f"of deployment '{self.deployment_name}' in application "
+                f"'{self.app_name}' on draining node {replica.actor_node_id}."
+            )
+            self._stop_replica(replica, graceful_stop=True)
+            num_excess -= 1
 
     def update(self) -> DeploymentStateUpdateResult:
         """Attempts to reconcile this deployment to match its goal state.
