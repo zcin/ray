@@ -29,6 +29,7 @@ from ray.serve._private.deployment_scheduler import (
     ReplicaSchedulingRequest,
 )
 from ray.serve._private.deployment_state import (
+    ALL_REPLICA_STATES,
     SLOW_STARTUP_WARNING_S,
     ActorReplicaWrapper,
     DeploymentReplica,
@@ -213,11 +214,6 @@ class MockReplicaActorWrapper:
         self.started = True
 
         def _on_scheduled_stub(*args, **kwargs):
-            print(
-                f"ReplicaSchedulingRequest.on_scheduled was invoked with:\n"
-                f"args={args}\n"
-                f"kwargs={kwargs}"
-            )
             pass
 
         return ReplicaSchedulingRequest(
@@ -653,8 +649,12 @@ def check_counts(
     total: Optional[int] = None,
     by_state: Optional[List[Tuple[ReplicaState, int]]] = None,
 ):
+    replicas = {
+        state: deployment_state._replicas.count(states=[state])
+        for state in ALL_REPLICA_STATES
+    }
     if total is not None:
-        assert deployment_state._replicas.count() == total
+        assert deployment_state._replicas.count() == total, f"Replicas: {replicas}"
 
     if by_state is not None:
         for state, count, version in by_state:
@@ -663,7 +663,10 @@ def check_counts(
             curr_count = deployment_state._replicas.count(
                 version=version, states=[state]
             )
-            msg = f"Expected {count} for state {state} but got {curr_count}."
+            msg = (
+                f"Expected {count} for state {state} but got {curr_count}. Current "
+                f"replicas: {replicas}"
+            )
             assert curr_count == count, msg
 
 
@@ -1305,81 +1308,6 @@ def test_deploy_new_config_new_version(mock_deployment_state_manager_full):
     assert (
         ds.curr_status_info.status_trigger
         == DeploymentStatusTrigger.CONFIG_UPDATE_COMPLETED
-    )
-
-
-def test_stop_replicas_on_draining_nodes(mock_deployment_state_manager_full):
-    create_dsm, _, cluster_node_info_cache = mock_deployment_state_manager_full
-    dsm: DeploymentStateManager = create_dsm()
-    cluster_node_info_cache.draining_node_ids = {"node-1", "node-2"}
-
-    b_info_1, v1 = deployment_info(num_replicas=2, version="1")
-    updated = dsm.deploy(TEST_DEPLOYMENT_ID, b_info_1)
-    assert updated
-    ds = dsm._deployment_states[TEST_DEPLOYMENT_ID]
-
-    dsm.update()
-    check_counts(ds, total=2, by_state=[(ReplicaState.STARTING, 2, v1)])
-    assert ds.curr_status_info.status == DeploymentStatus.UPDATING
-    assert (
-        ds.curr_status_info.status_trigger
-        == DeploymentStatusTrigger.CONFIG_UPDATE_STARTED
-    )
-
-    # Drain node-2.
-    cluster_node_info_cache.draining_node_ids = {"node-2"}
-
-    # Since the replicas are still starting and we don't know the actor node id
-    # yet so nothing happens
-    dsm.update()
-    check_counts(ds, total=2, by_state=[(ReplicaState.STARTING, 2, v1)])
-
-    one_replica, another_replica = ds._replicas.get()
-
-    one_replica._actor.set_node_id("node-1")
-    one_replica._actor.set_ready()
-
-    another_replica._actor.set_node_id("node-2")
-    another_replica._actor.set_ready()
-
-    # The replica running on node-2 will be drained.
-    # Simultaneously, a new replica will start to satisfy the target
-    # number of replicas.
-    dsm.update()
-    if RAY_SERVE_EAGERLY_START_REPLACEMENT_REPLICAS:
-        check_counts(
-            ds,
-            total=3,
-            by_state=[
-                (ReplicaState.RUNNING, 1, v1),
-                (ReplicaState.STOPPING, 1, v1),
-                (ReplicaState.STARTING, 1, v1),
-            ],
-        )
-    else:
-        check_counts(
-            ds,
-            total=2,
-            by_state=[
-                (ReplicaState.RUNNING, 1, v1),
-                (ReplicaState.STOPPING, 1, v1),
-            ],
-        )
-
-    # A new node is started.
-    cluster_node_info_cache.alive_node_ids = {
-        "node-1",
-        "node-2",
-        "node-3",
-    }
-
-    # The draining replica is stopped.
-    another_replica._actor.set_done_stopping()
-    dsm.update()
-    check_counts(
-        ds,
-        total=2,
-        by_state=[(ReplicaState.STARTING, 1, v1), (ReplicaState.RUNNING, 1, v1)],
     )
 
 
@@ -4242,6 +4170,430 @@ class TestTargetCapacity:
 
         ds.update()
         check_counts(ds, total=6, by_state=[(ReplicaState.RUNNING, 6, None)])
+        assert ds.curr_status_info.status == DeploymentStatus.HEALTHY
+
+
+class TestStopReplicasOnDrainingNodes:
+    """Test the behavior when draining node(s)."""
+
+    def test_draining_start_then_stop_replica(self, mock_deployment_state_manager_full):
+        """A new replica should be started before stopping old replica.
+
+        If the new replica starts quickly, the replica on the draining
+        node should then be gracefully stopped after the new replica
+        transitions to RUNNING.
+        """
+
+        create_dsm, timer, cluster_node_info_cache = mock_deployment_state_manager_full
+        cluster_node_info_cache.alive_node_ids = {"node-1", "node-2"}
+        dsm: DeploymentStateManager = create_dsm()
+        timer.reset(0)
+
+        b_info_1, v1 = deployment_info(
+            num_replicas=2, graceful_shutdown_timeout_s=20, version="1"
+        )
+        assert dsm.deploy(TEST_DEPLOYMENT_ID, b_info_1)
+        ds = dsm._deployment_states[TEST_DEPLOYMENT_ID]
+
+        dsm.update()
+        check_counts(ds, total=2, by_state=[(ReplicaState.STARTING, 2, v1)])
+
+        # Drain node-2 with deadline 60. Since the replicas are still
+        # starting and we don't know the actor node id yet nothing happens
+        cluster_node_info_cache.draining_node_ids = {"node-2": 60 * 1000}
+        dsm.update()
+        check_counts(ds, total=2, by_state=[(ReplicaState.STARTING, 2, v1)])
+
+        one_replica, another_replica = ds._replicas.get()
+
+        one_replica._actor.set_node_id("node-1")
+        one_replica._actor.set_ready()
+
+        another_replica._actor.set_node_id("node-2")
+        another_replica._actor.set_ready()
+
+        # Try to start a new replica before initiating the graceful stop
+        # process for the replica on the draining node
+        dsm.update()
+        check_counts(
+            ds,
+            total=3,
+            by_state=[
+                (ReplicaState.RUNNING, 1, v1),
+                (ReplicaState.PENDING_MIGRATION, 1, v1),
+                (ReplicaState.STARTING, 1, v1),
+            ],
+        )
+
+        # 5 seconds later, the replica hasn't started yet. The replica on
+        # the draining node should not start graceful termination yet.
+        timer.advance(5)
+        dsm.update()
+        check_counts(
+            ds,
+            total=3,
+            by_state=[
+                (ReplicaState.RUNNING, 1, v1),
+                (ReplicaState.PENDING_MIGRATION, 1, v1),
+                (ReplicaState.STARTING, 1, v1),
+            ],
+        )
+
+        # Simulate it took 5 more seconds for the new replica to be started
+        timer.advance(5)
+        ds._replicas.get([ReplicaState.STARTING])[0]._actor.set_ready()
+        dsm.update()
+        check_counts(
+            ds,
+            total=3,
+            by_state=[
+                (ReplicaState.RUNNING, 2, v1),
+                (ReplicaState.STOPPING, 1, v1),
+            ],
+        )
+
+        # After replica on draining node stops, deployment is healthy with 2
+        # running replicas.
+        another_replica._actor.set_done_stopping()
+        dsm.update()
+        check_counts(
+            ds,
+            total=2,
+            by_state=[(ReplicaState.RUNNING, 2, v1)],
+        )
+        assert ds.curr_status_info.status == DeploymentStatus.HEALTHY
+
+    def test_draining_stop_replica_before_deadline(
+        self, mock_deployment_state_manager_full
+    ):
+        """If the new replacement replica takes a long time to start,
+        the replica on the draining node should start gracefully
+        terminating ahead of time.
+
+        The graceful termination should be initiated `graceful_shutdown_timeout_s`
+        seconds before the draining node's deadline, even if the new
+        replica hasn't transitioned to RUNNING yet.
+        """
+
+        create_dsm, timer, cluster_node_info_cache = mock_deployment_state_manager_full
+        cluster_node_info_cache.alive_node_ids = {"node-1", "node-2"}
+        dsm: DeploymentStateManager = create_dsm()
+        timer.reset(0)
+
+        b_info_1, v1 = deployment_info(
+            num_replicas=2, graceful_shutdown_timeout_s=20, version="1"
+        )
+        assert dsm.deploy(TEST_DEPLOYMENT_ID, b_info_1)
+        ds = dsm._deployment_states[TEST_DEPLOYMENT_ID]
+
+        dsm.update()
+        check_counts(ds, total=2, by_state=[(ReplicaState.STARTING, 2, v1)])
+
+        # Drain node-2 with deadline 60. Since the replicas are still
+        # starting and we don't know the actor node id yet nothing happens
+        cluster_node_info_cache.draining_node_ids = {"node-2": 60 * 1000}
+        dsm.update()
+        check_counts(ds, total=2, by_state=[(ReplicaState.STARTING, 2, v1)])
+
+        one_replica, another_replica = ds._replicas.get()
+
+        one_replica._actor.set_node_id("node-1")
+        one_replica._actor.set_ready()
+
+        another_replica._actor.set_node_id("node-2")
+        another_replica._actor.set_ready()
+
+        # Try to start a new replica before initiating the graceful stop
+        # process for the replica on the draining node
+        dsm.update()
+        check_counts(
+            ds,
+            total=3,
+            by_state=[
+                (ReplicaState.RUNNING, 1, v1),
+                (ReplicaState.PENDING_MIGRATION, 1, v1),
+                (ReplicaState.STARTING, 1, v1),
+            ],
+        )
+
+        # Simulate the replica is not yet started after 40 seconds. The
+        # replica on node-2 should start graceful termination even though
+        # a new replica hasn't come up yet.
+        timer.advance(40)
+        dsm.update()
+        check_counts(
+            ds,
+            total=3,
+            by_state=[
+                (ReplicaState.RUNNING, 1, v1),
+                (ReplicaState.STOPPING, 1, v1),
+                (ReplicaState.STARTING, 1, v1),
+            ],
+        )
+
+        # Mark replica as finished stopping.
+        another_replica._actor.set_done_stopping()
+        dsm.update()
+        check_counts(
+            ds,
+            total=2,
+            by_state=[(ReplicaState.STARTING, 1, v1), (ReplicaState.RUNNING, 1, v1)],
+        )
+
+        # 5 seconds later, the replica finally starts.
+        timer.advance(5)
+        ds._replicas.get([ReplicaState.STARTING])[0]._actor.set_ready()
+        dsm.update()
+        check_counts(ds, total=2, by_state=[(ReplicaState.RUNNING, 2, v1)])
+        assert ds.curr_status_info.status == DeploymentStatus.HEALTHY
+
+    def test_draining_multiple_nodes(self, mock_deployment_state_manager_full):
+        """Test multiple nodes draining at the same time.
+
+        We should choose to stop replicas on nodes with the earliest
+        deadlines when new replicas are started.
+        """
+
+        create_dsm, timer, cluster_node_info_cache = mock_deployment_state_manager_full
+        cluster_node_info_cache.alive_node_ids = {
+            "node-1",
+            "node-2",
+            "node-3",
+            "node-4",
+        }
+        dsm: DeploymentStateManager = create_dsm()
+        timer.reset(0)
+
+        b_info_1, v1 = deployment_info(
+            num_replicas=4, graceful_shutdown_timeout_s=20, version="1"
+        )
+        assert dsm.deploy(TEST_DEPLOYMENT_ID, b_info_1)
+        ds = dsm._deployment_states[TEST_DEPLOYMENT_ID]
+
+        dsm.update()
+        check_counts(ds, total=4, by_state=[(ReplicaState.STARTING, 4, v1)])
+
+        # Drain node-2 with deadline 60. Since the replicas are still
+        # starting and we don't know the actor node id yet nothing happens
+        cluster_node_info_cache.draining_node_ids = {
+            "node-2": 60 * 1000,
+            "node-3": 100 * 1000,
+            "node-4": 40 * 1000,
+        }
+        dsm.update()
+        check_counts(ds, total=4, by_state=[(ReplicaState.STARTING, 4, v1)])
+
+        for i, replica in enumerate(ds._replicas.get()):
+            replica._actor.set_node_id(f"node-{i+1}")
+            replica._actor.set_ready()
+
+        # Try to start new replicas before initiating the graceful stop
+        # process for the replica on the draining node
+        dsm.update()
+        check_counts(
+            ds,
+            total=7,
+            by_state=[
+                (ReplicaState.RUNNING, 1, v1),
+                (ReplicaState.PENDING_MIGRATION, 3, v1),
+                (ReplicaState.STARTING, 3, v1),
+            ],
+        )
+
+        # First new replica transitions to RUNNING.
+        timer.advance(5)
+        ds._replicas.get([ReplicaState.STARTING])[0]._actor.set_ready()
+        dsm.update()
+        check_counts(
+            ds,
+            total=7,
+            by_state=[
+                (ReplicaState.RUNNING, 2, v1),
+                (ReplicaState.STOPPING, 1, v1),
+                (ReplicaState.PENDING_MIGRATION, 2, v1),
+                (ReplicaState.STARTING, 2, v1),
+            ],
+        )
+        # The replica on node-4 should be selected for graceful termination,
+        # because node-4 has the earliest deadline.
+        stopping_replica = ds._replicas.get([ReplicaState.STOPPING])[0]
+        assert stopping_replica.actor_node_id == "node-4"
+        stopping_replica._actor.set_done_stopping()
+        dsm.update()
+
+        # Second new replica transitions to RUNNING.
+        timer.advance(5)
+        ds._replicas.get([ReplicaState.STARTING])[0]._actor.set_ready()
+        dsm.update()
+        check_counts(
+            ds,
+            total=6,
+            by_state=[
+                (ReplicaState.RUNNING, 3, v1),
+                (ReplicaState.STOPPING, 1, v1),
+                (ReplicaState.PENDING_MIGRATION, 1, v1),
+                (ReplicaState.STARTING, 1, v1),
+            ],
+        )
+        # The replica on node-2 should be selected for graceful termination,
+        # because node-2 has the second earliest deadline.
+        stopping_replica = ds._replicas.get([ReplicaState.STOPPING])[0]
+        assert stopping_replica.actor_node_id == "node-2"
+        stopping_replica._actor.set_done_stopping()
+        dsm.update()
+
+        # Third new replica transitions to RUNNING.
+        timer.advance(5)
+        ds._replicas.get([ReplicaState.STARTING])[0]._actor.set_ready()
+        dsm.update()
+        check_counts(
+            ds,
+            total=5,
+            by_state=[
+                (ReplicaState.RUNNING, 4, v1),
+                (ReplicaState.STOPPING, 1, v1),
+            ],
+        )
+
+        # The replica on node-3 should be selected for graceful termination
+        # last because node-3 has the latest deadline.
+        stopping_replica = ds._replicas.get([ReplicaState.STOPPING])[0]
+        assert stopping_replica.actor_node_id == "node-3"
+        stopping_replica._actor.set_done_stopping()
+        dsm.update()
+
+        # Finally all 4 replicas are running.
+        check_counts(ds, total=4, by_state=[(ReplicaState.RUNNING, 4, v1)])
+        assert ds.curr_status_info.status == DeploymentStatus.HEALTHY
+
+    def test_replicas_unhealthy_on_draining_node(
+        self, mock_deployment_state_manager_full
+    ):
+        """Replicas pending migration should be stopped if unhealthy."""
+
+        create_dsm, timer, cluster_node_info_cache = mock_deployment_state_manager_full
+        cluster_node_info_cache.alive_node_ids = {"node-1", "node-2"}
+        dsm: DeploymentStateManager = create_dsm()
+        timer.reset(0)
+
+        b_info_1, v1 = deployment_info(
+            num_replicas=2, graceful_shutdown_timeout_s=20, version="1"
+        )
+        assert dsm.deploy(TEST_DEPLOYMENT_ID, b_info_1)
+        ds = dsm._deployment_states[TEST_DEPLOYMENT_ID]
+
+        dsm.update()
+        check_counts(ds, total=2, by_state=[(ReplicaState.STARTING, 2, v1)])
+
+        # Drain node-2 with deadline 60.
+        cluster_node_info_cache.draining_node_ids = {"node-2": 60 * 1000}
+        dsm.update()
+        check_counts(ds, total=2, by_state=[(ReplicaState.STARTING, 2, v1)])
+
+        one_replica, another_replica = ds._replicas.get()
+
+        one_replica._actor.set_node_id("node-1")
+        another_replica._actor.set_node_id("node-2")
+        one_replica._actor.set_ready()
+        another_replica._actor.set_ready()
+
+        # Try to start a new replica before initiating the graceful stop
+        # process for the replica on the draining node
+        dsm.update()
+        check_counts(
+            ds,
+            total=3,
+            by_state=[
+                (ReplicaState.RUNNING, 1, v1),
+                (ReplicaState.PENDING_MIGRATION, 1, v1),
+                (ReplicaState.STARTING, 1, v1),
+            ],
+        )
+
+        # 5 seconds later, the new replica hasn't started but the
+        # replica on the draining node has become unhealthy. It should
+        # be stopped.
+        timer.advance(5)
+        ds._replicas.get([ReplicaState.PENDING_MIGRATION])[0]._actor.set_unhealthy()
+        dsm.update()
+        check_counts(
+            ds,
+            total=3,
+            by_state=[
+                (ReplicaState.RUNNING, 1, v1),
+                (ReplicaState.STOPPING, 1, v1),
+                (ReplicaState.STARTING, 1, v1),
+            ],
+        )
+
+        # Unhealthy replica is stopped.
+        ds._replicas.get([ReplicaState.STOPPING])[0]._actor.set_done_stopping()
+        check_counts(
+            ds,
+            total=3,
+            by_state=[(ReplicaState.RUNNING, 1, v1), (ReplicaState.STARTING, 1, v1)],
+        )
+
+        # New replica starts.
+        ds._replicas.get([ReplicaState.STARTING])[0]._actor.set_ready()
+        dsm.update()
+        check_counts(ds, total=2, by_state=[(ReplicaState.RUNNING, 2, v1)])
+
+    def test_starting_replica_on_draining_node(
+        self, mock_deployment_state_manager_full
+    ):
+        """Test that replicas pending migration of the old version are updated."""
+
+        create_dsm, timer, cluster_node_info_cache = mock_deployment_state_manager_full
+        cluster_node_info_cache.alive_node_ids = {"node-1", "node-2"}
+        dsm: DeploymentStateManager = create_dsm()
+        timer.reset(0)
+
+        b_info_1, v1 = deployment_info(
+            num_replicas=2, graceful_shutdown_timeout_s=20, version="1"
+        )
+        assert dsm.deploy(TEST_DEPLOYMENT_ID, b_info_1)
+        ds = dsm._deployment_states[TEST_DEPLOYMENT_ID]
+
+        dsm.update()
+        check_counts(ds, total=2, by_state=[(ReplicaState.STARTING, 2, v1)])
+
+        # Mark replica on node-1 as ready, but replica on node-2 is
+        # still starting
+        one_replica, another_replica = ds._replicas.get()
+        one_replica._actor.set_node_id("node-1")
+        another_replica._actor.set_node_id("node-2")
+        one_replica._actor.set_ready()
+        dsm.update()
+        check_counts(
+            ds,
+            total=2,
+            by_state=[(ReplicaState.RUNNING, 1, v1), (ReplicaState.STARTING, 1, v1)],
+        )
+
+        # Drain node-2. The starting replica should be stopped immediately
+        # without waiting for the replica to start.
+        cluster_node_info_cache.draining_node_ids = {"node-2": 60 * 1000}
+        dsm.update()
+        check_counts(
+            ds,
+            total=3,
+            by_state=[
+                (ReplicaState.RUNNING, 1, v1),
+                (ReplicaState.STOPPING, 1, v1),
+                (ReplicaState.STARTING, 1, v1),
+            ],
+        )
+        stopping_replica = ds._replicas.get([ReplicaState.STOPPING])[0]
+        assert stopping_replica.actor_node_id == "node-2"
+        starting_replica = ds._replicas.get([ReplicaState.STARTING])[0]
+        assert starting_replica.actor_node_id != "node-2"
+
+        # Finish stopping old replica, and finish starting new replica.
+        stopping_replica._actor.set_done_stopping()
+        starting_replica._actor.set_ready()
+        dsm.update()
+        check_counts(ds, total=2, by_state=[(ReplicaState.RUNNING, 2, v1)])
         assert ds.curr_status_info.status == DeploymentStatus.HEALTHY
 
 
