@@ -1377,7 +1377,9 @@ class DeploymentState:
     def get_running_replica_infos(self) -> List[RunningReplicaInfo]:
         return [
             replica.get_running_replica_info(self._cluster_node_info_cache)
-            for replica in self._replicas.get([ReplicaState.RUNNING])
+            for replica in self._replicas.get(
+                [ReplicaState.RUNNING, ReplicaState.PENDING_MIGRATION]
+            )
         ]
 
     def get_active_node_ids(self) -> Set[str]:
