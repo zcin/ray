@@ -1,7 +1,7 @@
 import asyncio
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import grpc
 import pytest
@@ -332,6 +332,8 @@ async def send_signal_on_cancellation(signal_actor: ActorHandle):
     try:
         await asyncio.sleep(100000)
     except asyncio.CancelledError:
+        # Clear the context var to avoid Ray recursively cancelling this method call.
+        ray._raylet.async_task_id.set(None)
         await signal_actor.send.remote()
 
 
@@ -379,3 +381,38 @@ class FakeGrpcContext:
 
     def invocation_metadata(self):
         return self._invocation_metadata
+
+
+class MockGauge:
+    def __init__(self, name: str, tag_keys: Tuple[str], **kwargs):
+        self.name = name
+        self.value = None
+        self.tags = {key: None for key in tag_keys}
+
+    def set_default_tags(self, tags: Dict[str, str]):
+        for key, tag in tags.items():
+            assert key in self.tags
+            self.tags[key] = tag
+
+    def set(self, value: Union[int, float], tags: Dict[str, str] = None):
+        self.value = value
+        self.tags = tags
+
+
+class MockCounter:
+    def __init__(self, name: str, tag_keys: Tuple[str], **kwargs):
+        self.name = name
+        self.count: int = 0
+        self.tags = {key: None for key in tag_keys}
+    
+    def set_default_tags(self, tags: Dict[str, str]):
+        for key, tag in tags.items():
+            assert key in self.tags
+            self.tags[key] = tag
+
+    def inc(self, value: Union[int, float] = 1.0, tags: Dict[str, str] = None):
+        self.count += value
+        self.tags = tags
+
+    def get_count(self) -> int:
+        return self.count

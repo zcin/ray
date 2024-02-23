@@ -1,11 +1,14 @@
 import asyncio
 import sys
 from typing import Dict, List, Optional, Tuple, Union
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
 from ray._private.utils import get_or_create_event_loop
+from ray.serve._private.test_utils import MockCounter, MockGauge
+from ray.serve._private.router import RouterMetricsManager
+from ray.serve._private.common import DeploymentID, RequestMetadata, RunningReplicaInfo
 from ray.serve._private.common import (
     DeploymentID,
     ReplicaQueueLengthInfo,
@@ -75,21 +78,13 @@ class FakeReplica(ReplicaWrapper):
     async def send_request_with_rejection(
         self,
         pr: PendingRequest,
-    ) -> Tuple[
-        Optional[Union[FakeObjectRef, FakeObjectRefGen]], ReplicaQueueLengthInfo
-    ]:
+    ) -> Tuple[Optional[FakeObjectRefGen], ReplicaQueueLengthInfo]:
         assert not self.is_cross_language, "Rejection not supported for cross language."
         assert (
             self._queue_len_info is not None
         ), "Must set queue_len_info to use `send_request_with_rejection`."
 
-        obj_ref_or_gen = None
-        if pr.metadata.is_streaming:
-            obj_ref_or_gen = FakeObjectRefGen(self._replica_id)
-        else:
-            obj_ref_or_gen = FakeObjectRef(self._replica_id)
-
-        return obj_ref_or_gen, self._queue_len_info
+        return FakeObjectRefGen(self._replica_id), self._queue_len_info
 
 
 class FakeReplicaScheduler(ReplicaScheduler):
@@ -235,12 +230,9 @@ class TestAssignRequest:
             endpoint="",
             is_streaming=is_streaming,
         )
-        obj_ref = await router.assign_request(request_metadata)
-        if is_streaming:
-            assert isinstance(obj_ref, FakeObjectRefGen)
-        else:
-            assert isinstance(obj_ref, FakeObjectRef)
-        assert obj_ref.replica_id == "test-replica-1"
+        obj_ref_gen = await router.assign_request(request_metadata)
+        assert isinstance(obj_ref_gen, FakeObjectRefGen)
+        assert obj_ref_gen.replica_id == "test-replica-1"
 
         if router._enable_queue_len_cache:
             assert (
@@ -289,10 +281,7 @@ class TestAssignRequest:
             is_streaming=is_streaming,
         )
         obj_ref = await router.assign_request(request_metadata)
-        if is_streaming:
-            assert isinstance(obj_ref, FakeObjectRefGen)
-        else:
-            assert isinstance(obj_ref, FakeObjectRef)
+        assert isinstance(obj_ref, FakeObjectRefGen)
         assert obj_ref.replica_id == "test-replica-2"
 
         if router._enable_queue_len_cache:
@@ -501,6 +490,27 @@ class TestAssignRequest:
                 for obj_ref in await asyncio.gather(*assign_request_tasks)
             ]
         )
+
+
+class TestRouterMetricsManager:
+    @patch("ray.serve._private.router.metrics.Counter", new=MockCounter)
+    def test_num_router_requests():
+        metrics_manager = RouterMetricsManager(DeploymentID("a", "b"), "random", Mock())
+        assert metrics_manager.num_router_requests.get_count() == 0
+
+        metrics_manager.inc_num_total_requests(route="/alice")
+        assert metrics_manager.num_router_requests.get_count() == 1
+
+
+    @patch("ray.serve._private.router.metrics.Gauge", new=MockGauge)
+    def test_num_router_requests():
+        metrics_manager = RouterMetricsManager(DeploymentID("a", "b"), "random", Mock())
+        assert metrics_manager.num_queued_requests_gauge.get_value() == 0
+
+        metrics_manager.inc_num_queued_requests()
+        assert metrics_manager.num_queued_requests_gauge.get_value() == 1
+        metrics_manager.dec_num_queued_requests()
+        assert metrics_manager.num_queued_requests_gauge.get_value() == 0
 
 
 if __name__ == "__main__":
