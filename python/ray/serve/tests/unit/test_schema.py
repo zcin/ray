@@ -836,6 +836,7 @@ def test_serve_instance_details_is_json_serializable():
                                 "_serialized_policy_def": serialized_policy_def
                             },
                         },
+                        "target_num_replicas": 0,
                         "replicas": [],
                     }
                 },
