@@ -1,11 +1,14 @@
 import asyncio
 import sys
 from typing import Dict, List, Optional, Tuple, Union
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
 from ray._private.utils import get_or_create_event_loop
+from ray.serve._private.test_utils import MockCounter, MockGauge
+from ray.serve._private.router import RouterMetricsManager
+from ray.serve._private.common import DeploymentID, RequestMetadata, RunningReplicaInfo
 from ray.serve._private.common import (
     DeploymentID,
     ReplicaQueueLengthInfo,
@@ -487,6 +490,27 @@ class TestAssignRequest:
                 for obj_ref in await asyncio.gather(*assign_request_tasks)
             ]
         )
+
+
+class TestRouterMetricsManager:
+    @patch("ray.serve._private.router.metrics.Counter", new=MockCounter)
+    def test_num_router_requests():
+        metrics_manager = RouterMetricsManager(DeploymentID("a", "b"), "random", Mock())
+        assert metrics_manager.num_router_requests.get_count() == 0
+
+        metrics_manager.inc_num_total_requests(route="/alice")
+        assert metrics_manager.num_router_requests.get_count() == 1
+
+
+    @patch("ray.serve._private.router.metrics.Gauge", new=MockGauge)
+    def test_num_router_requests():
+        metrics_manager = RouterMetricsManager(DeploymentID("a", "b"), "random", Mock())
+        assert metrics_manager.num_queued_requests_gauge.get_value() == 0
+
+        metrics_manager.inc_num_queued_requests()
+        assert metrics_manager.num_queued_requests_gauge.get_value() == 1
+        metrics_manager.dec_num_queued_requests()
+        assert metrics_manager.num_queued_requests_gauge.get_value() == 0
 
 
 if __name__ == "__main__":
