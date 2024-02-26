@@ -1729,12 +1729,14 @@ def get_or_create_event_loop() -> asyncio.BaseEventLoop:
         loop = None
         try:
             loop = asyncio.get_running_loop()
+            print("got running loop", loop)
             assert loop is not None
             return loop
         except RuntimeError as e:
             # No running loop, relying on the error message as for now to
             # differentiate runtime errors.
             assert "no running event loop" in str(e)
+            print("no running loop!!!")
             return asyncio.get_event_loop_policy().get_event_loop()
 
     return asyncio.get_event_loop()
