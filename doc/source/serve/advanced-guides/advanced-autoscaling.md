@@ -25,6 +25,10 @@ As an example, suppose you have two replicas of a synchronous deployment that ha
 :::
 
 #### **max_concurrent_queries [default=100]**
+:::{note}
+The default for `max_concurrent_queries` will *switch* to 5 in an upcoming Ray release.
+:::
+
 There is also a maximum queue limit that is proxies respect when assigning requests to replicas. The limit is defined by `max_concurrent_queries`. We recommend setting `max_concurrent_queries` to ~20 to 50% higher than `target_num_ongoing_requests_per_replica`. Note that `target_num_ongoing_requests_per_replica` should always be strictly less than `max_concurrent_queries`, otherwise the deployment never scales up. Take into account the following when setting `max_concurrent_queries`:
 
 - Setting it too low limits upscaling. For instance, if your target value is 50 and `max_concurrent_queries` is 51, then even if the traffic increases significantly, the requests will queue up at the proxy instead of at the replicas. As a result, the autoscaler only increases the number of replicas at most 2% at a time, which is very slow.
