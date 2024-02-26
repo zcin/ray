@@ -167,6 +167,16 @@ def create_serve_rest_api(
                     text=repr(e),
                 )
 
+            for deployment in [
+                d for app in config.applications for d in app.deployments
+            ]:
+                if "max_concurrent_queries" not in deployment.dict(exclude_unset=True):
+                    logger.warning(
+                        "The default value for `max_concurrent_queries` will "
+                        "change from 100 to 5 in an upcoming release."
+                    )
+                    break
+
             config_http_options = config.http_options.dict()
             location = ProxyLocation._to_deployment_mode(config.proxy_location)
             full_http_options = dict({"location": location}, **config_http_options)
