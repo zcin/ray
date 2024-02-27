@@ -13,7 +13,10 @@ import ray
 from ray._private.test_utils import async_wait_for_condition
 from ray._private.utils import get_or_create_event_loop
 from ray.serve._private.common import DeploymentID, RequestMetadata
-from ray.serve._private.constants import RAY_SERVE_QUEUE_LENGTH_CACHE_TIMEOUT_S
+from ray.serve._private.constants import (
+    DEFAULT_MAX_ONGOING_REQUESTS,
+    RAY_SERVE_QUEUE_LENGTH_CACHE_TIMEOUT_S,
+)
 from ray.serve._private.replica_scheduler import (
     PendingRequest,
     PowerOfTwoChoicesReplicaScheduler,
@@ -1540,8 +1543,8 @@ async def test_queue_len_cache_entries_added_correctly(pow_2_scheduler):
     s.update_replicas([r1, r2])
 
     for i in range(100):
-        r1_queue_len = int(DEFAULT_MAX_CONCURRENT_REQUESTS * random.random())
-        r2_queue_len = int(DEFAULT_MAX_CONCURRENT_REQUESTS * random.random())
+        r1_queue_len = int(DEFAULT_MAX_ONGOING_REQUESTS * random.random())
+        r2_queue_len = int(DEFAULT_MAX_ONGOING_REQUESTS * random.random())
         r1.set_queue_len_response(r1_queue_len)
         r2.set_queue_len_response(r2_queue_len)
 
