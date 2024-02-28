@@ -257,7 +257,7 @@ class ServeController:
     def record_autoscaling_metrics(
         self, replica_id: str, window_avg: float, send_timestamp: float
     ):
-        logger.debug(
+        logger.info(
             f"Received metrics from replica {replica_id}: {window_avg} running requests"
         )
         self.deployment_state_manager.record_autoscaling_metrics(
@@ -272,7 +272,7 @@ class ServeController:
         running_requests: Dict[str, float],
         send_timestamp: float,
     ):
-        logger.debug(
+        logger.info(
             f"Received metrics from handle {handle_id} for deployment {deployment_id}: "
             f"{queued_requests} queued requests and {running_requests} running requests"
         )
