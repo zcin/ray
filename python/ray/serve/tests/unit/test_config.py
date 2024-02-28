@@ -43,8 +43,10 @@ def test_autoscaling_config_validation():
         # max_replicas must be positive
         AutoscalingConfig(max_replicas=0)
 
+    # target_ongoing_requests must be nonnegative
     with pytest.raises(ValidationError):
-        # max_replicas must be nonnegative
+        AutoscalingConfig(target_ongoing_requests=-1)
+    with pytest.raises(ValidationError):
         AutoscalingConfig(target_num_ongoing_requests_per_replica=-1)
 
     # max_replicas must be greater than or equal to min_replicas
