@@ -101,7 +101,7 @@ def test_autoscaling_metrics(serve_instance):
             "metrics_interval_s": 0.1,
             "min_replicas": 1,
             "max_replicas": 2,
-            "target_num_ongoing_requests_per_replica": 1,
+            "target_ongoing_requests": 1,
             "upscale_delay_s": 0,
             "downscale_delay_s": 0,
             "look_back_period_s": 1,
