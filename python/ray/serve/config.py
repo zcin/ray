@@ -6,6 +6,7 @@ from typing import Any, Callable, List, Optional, Union
 from ray import cloudpickle
 from ray._private.pydantic_compat import (
     BaseModel,
+    Field,
     NonNegativeFloat,
     NonNegativeInt,
     PositiveFloat,
@@ -39,7 +40,12 @@ class AutoscalingConfig(BaseModel):
     initial_replicas: Optional[NonNegativeInt] = None
     max_replicas: PositiveInt = 1
 
-    target_num_ongoing_requests_per_replica: PositiveFloat = 1.0
+    # DEPRECATED: replaced by target_ongoing_requests
+    target_num_ongoing_requests_per_replica: PositiveFloat = Field(
+        default=1.0,
+        description="[DEPRECATED] Please use `target_ongoing_requests` instead.",
+    )
+    target_ongoing_requests: PositiveFloat = 1.0
 
     # How often to scrape for metrics
     metrics_interval_s: PositiveFloat = 10.0
@@ -116,7 +122,10 @@ class AutoscalingConfig(BaseModel):
     @classmethod
     def default(cls):
         return cls(
-            min_replicas=1, max_replicas=100, target_num_ongoing_requests_per_replica=2
+            min_replicas=1,
+            max_replicas=100,
+            target_num_ongoing_requests_per_replica=2,
+            target_ongoing_requests=2,
         )
 
     def get_policy(self) -> Callable:
@@ -128,6 +137,11 @@ class AutoscalingConfig(BaseModel):
 
     def get_downscale_smoothing_factor(self) -> PositiveFloat:
         return self.downscale_smoothing_factor or self.smoothing_factor
+
+    def get_target_ongoing_requests(self) -> PositiveFloat:
+        if "target_ongoing_requests" in self.dict(exclude_unset=True):
+            return self.target_ongoing_requests
+        return self.target_num_ongoing_requests_per_replica
 
     # TODO(architkulkarni): implement below
     # The num_ongoing_requests_per_replica error ratio (desired / current)
