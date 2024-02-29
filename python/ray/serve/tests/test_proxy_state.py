@@ -127,10 +127,18 @@ def number_of_worker_nodes() -> int:
 
 @pytest.fixture
 def all_nodes(number_of_worker_nodes) -> List[Tuple[str, str]]:
-    return [(HEAD_NODE_ID, "fake-head-ip")] + [
-        (f"worker-node-id-{i}", f"fake-worker-ip-{i}")
+    head_node = (
+        HEAD_NODE_ID,
+        {"node_name": "fake-head-ip".encode("utf-8"), "resources": {}},
+    )
+    worker_nodes = [
+        (
+            f"worker-node-id-{i}",
+            {"node_name": f"fake-worker-ip-{i}".encode("utf-8"), "resources": {}},
+        )
         for i in range(number_of_worker_nodes)
     ]
+    return worker_nodes + [head_node]
 
 
 def _reconcile_and_check_proxy_status(state: ProxyState, status: ProxyStatus):
