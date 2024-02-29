@@ -24,7 +24,7 @@ class ClusterNodeInfoCache(ABC):
         """
         nodes = self._gcs_client.get_all_node_info(timeout=RAY_GCS_RPC_TIMEOUT_S)
         alive_nodes = [
-            (ray.NodeID.from_binary(node_id).hex(), node["node_name"].decode("utf-8"))
+            (ray.NodeID.from_binary(node_id).hex(), node)
             for (node_id, node) in nodes.items()
             if node["state"] == ray.core.generated.gcs_pb2.GcsNodeInfo.ALIVE
         ]
@@ -40,10 +40,10 @@ class ClusterNodeInfoCache(ABC):
             for (node_id, node) in nodes.items()
         }
 
-    def get_alive_nodes(self) -> List[Tuple[str, str]]:
-        """Get IDs and IPs for all live nodes in the cluster.
+    def get_alive_nodes(self) -> List[Tuple[str, Dict]]:
+        """Get IDs and info for all live nodes in the cluster.
 
-        Returns a list of (node_id: str, ip_address: str). The node_id can be
+        Returns a list of (node_id: str, node_info: Dict). The node_id can be
         passed into the Ray SchedulingPolicy API.
         """
         return self._cached_alive_nodes

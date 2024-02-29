@@ -640,8 +640,8 @@ class ProxyStateManager:
             return []
 
         target_nodes = [
-            (node_id, ip_address)
-            for node_id, ip_address in self._cluster_node_info_cache.get_alive_nodes()
+            (node_id, node["node_name"].decode("utf-8"))
+            for node_id, node in self._cluster_node_info_cache.get_alive_nodes()
             if node_id in proxy_nodes
         ]
 
