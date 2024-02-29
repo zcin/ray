@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 import ray
 from ray._raylet import GcsClient
@@ -13,6 +13,7 @@ class ClusterNodeInfoCache(ABC):
         self._gcs_client = gcs_client
         self._cached_alive_nodes = None
         self._cached_node_labels = dict()
+        self._available_resources_per_node = dict()
 
     def update(self):
         """Update the cache by fetching latest node information from GCS.
@@ -24,7 +25,7 @@ class ClusterNodeInfoCache(ABC):
         """
         nodes = self._gcs_client.get_all_node_info(timeout=RAY_GCS_RPC_TIMEOUT_S)
         alive_nodes = [
-            (ray.NodeID.from_binary(node_id).hex(), node["node_name"].decode("utf-8"))
+            (ray.NodeID.from_binary(node_id).hex(), node)
             for (node_id, node) in nodes.items()
             if node["state"] == ray.core.generated.gcs_pb2.GcsNodeInfo.ALIVE
         ]
@@ -40,10 +41,14 @@ class ClusterNodeInfoCache(ABC):
             for (node_id, node) in nodes.items()
         }
 
-    def get_alive_nodes(self) -> List[Tuple[str, str]]:
-        """Get IDs and IPs for all live nodes in the cluster.
+        self._available_resources_per_node = (
+            ray._private.state.available_resources_per_node()
+        )
 
-        Returns a list of (node_id: str, ip_address: str). The node_id can be
+    def get_alive_nodes(self) -> List[Tuple[str, Dict]]:
+        """Get IDs and info for all live nodes in the cluster.
+
+        Returns a list of (node_id: str, node_info: Dict). The node_id can be
         passed into the Ray SchedulingPolicy API.
         """
         return self._cached_alive_nodes
@@ -68,6 +73,13 @@ class ClusterNodeInfoCache(ABC):
         A node is active if it's schedulable for new tasks and actors.
         """
         return self.get_alive_node_ids() - set(self.get_draining_nodes())
+
+    def get_available_resources_per_node(self) -> Dict[str, Union[float, Dict]]:
+        """Get available resources per node.
+
+        Returns a map from (node_id -> Dict of resources)"""
+
+        return self._available_resources_per_node
 
 
 class DefaultClusterNodeInfoCache(ClusterNodeInfoCache):
