@@ -3,11 +3,13 @@ import sys
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from functools import total_ordering
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import ray
 from ray.serve._private.cluster_node_info_cache import ClusterNodeInfoCache
 from ray.serve._private.common import DeploymentID
+from ray.serve._private.config import ReplicaConfig
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
 
@@ -15,6 +17,97 @@ class SpreadDeploymentSchedulingPolicy:
     """A scheduling policy that spreads replicas with best effort."""
 
     pass
+
+
+@total_ordering
+class Resources(dict):
+    def __init__(self, ray_resources: Dict = None):
+        if not ray_resources:
+            super().__init__()
+
+        else:
+            num_cpus = ray_resources.get("CPU", 0)
+            num_gpus = ray_resources.get("GPU", 0)
+            memory = ray_resources.get("memory", 0)
+            custom_resources = ray_resources.get("resources", dict())
+
+            super().__init__(
+                CPU=num_cpus, GPU=num_gpus, memory=memory, **custom_resources
+            )
+
+    def get(self, key: str):
+        if key in self:
+            return super().get(key)
+
+        # Implicit resources by default have 1 total
+        if key.startswith(ray._raylet.IMPLICIT_RESOURCE_PREFIX):
+            return 1
+
+        # Otherwise by default there is 0 of this resource
+        return 0
+
+    def can_fit(self, other):
+        keys = set(self.keys()) | set(other.keys())
+        return all(self.get(k) >= other.get(k) for k in keys)
+
+    def __eq__(self, other):
+        keys = set(self.keys()) | set(other.keys())
+        return all(self.get(k) == other.get(k) for k in keys)
+
+    def __add__(self, other):
+        keys = set(self.keys()) | set(other.keys())
+
+        kwargs = dict()
+        for key in keys:
+            if key.startswith(ray._raylet.IMPLICIT_RESOURCE_PREFIX):
+                kwargs[key] = min(1.0, self.get(key) + other.get(key))
+            else:
+                kwargs[key] = self.get(key) + other.get(key)
+
+        return Resources(kwargs)
+
+    def __sub__(self, other):
+        keys = set(self.keys()) | set(other.keys())
+        kwargs = {key: self.get(key) - other.get(key) for key in keys}
+        return Resources(kwargs)
+
+    def __lt__(self, other):
+        """Determines priority when sorting a list of SoftResources.
+        1. GPU
+        2. CPU
+        3. memory
+        4. custom resources
+        This means a resource with a larger number of GPUs is always
+        sorted higher than a resource with a smaller number of GPUs,
+        regardless of the values of the other resource types. Similarly
+        for CPU next, memory next, etc.
+        """
+
+        keys = set(self.keys()) | set(other.keys())
+        keys = keys - {"GPU", "CPU", "memory"}
+
+        if self.get("GPU") < other.get("GPU"):
+            return True
+        elif self.get("GPU") > other.get("GPU"):
+            return False
+
+        if self.get("CPU") < other.get("CPU"):
+            return True
+        elif self.get("CPU") > other.get("CPU"):
+            return False
+
+        if self.get("memory") < other.get("memory"):
+            return True
+        elif self.get("memory") > other.get("memory"):
+            return False
+
+        for key in keys:
+            if self.get(key) < other.get(key):
+                return True
+            elif self.get(key) > other.get(key):
+                return False
+
+        return False
 
 
 @dataclass
@@ -51,6 +144,14 @@ class DeploymentDownscaleRequest:
     num_to_stop: int
 
 
+@dataclass
+class DeploymentSchedulingInfo:
+    scheduling_policy: Any
+    actor_resources: Resources
+    placement_group_bundles: List[Resources]
+    placement_group_strategy: str
+
+
 class DeploymentScheduler(ABC):
     """A centralized scheduler for all Serve deployments.
 
@@ -62,6 +163,15 @@ class DeploymentScheduler(ABC):
         self,
         deployment_id: DeploymentID,
         scheduling_policy: SpreadDeploymentSchedulingPolicy,
+    ) -> None:
+        """Called whenever a new deployment is created."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def on_deployment_deployed(
+        self,
+        deployment_id: DeploymentID,
+        replica_config: ReplicaConfig,
     ) -> None:
         """Called whenever a new deployment is created."""
         raise NotImplementedError
@@ -109,6 +219,11 @@ class DeploymentScheduler(ABC):
         """
         raise NotImplementedError
 
+    @abstractmethod
+    def _detect_compact_opportunities(self) -> Tuple[str, float]:
+        """Returns a node ID to be compacted and a compaction deadlne."""
+        raise NotImplementedError
+
 
 class DefaultDeploymentScheduler(DeploymentScheduler):
     def __init__(
@@ -117,7 +232,7 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
         head_node_id: str,
     ):
         # {deployment_id: scheduling_policy}
-        self._deployments = {}
+        self._deployments: Dict[DeploymentID, DeploymentSchedulingInfo] = {}
         # Replicas that are waiting to be scheduled.
         # {deployment_id: {replica_name: deployment_upscale_request}}
         self._pending_replicas = defaultdict(dict)
@@ -149,6 +264,22 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
         assert deployment_id not in self._recovering_replicas
         assert deployment_id not in self._running_replicas
         self._deployments[deployment_id] = scheduling_policy
+
+    def on_deployment_deployed(
+        self,
+        deployment_id: DeploymentID,
+        replica_config: ReplicaConfig,
+    ) -> None:
+        assert deployment_id in self._deployments
+        self._deployments[deployment_id].actor_resources = Resources(
+            replica_config.resource_dict
+        )
+        self._deployments[deployment_id].placement_group_bundles = [
+            Resources(bundle) for bundle in replica_config.placement_group_bundles
+        ]
+        self._deployments[
+            deployment_id
+        ].placement_group_strategy = replica_config.placement_group_strategy
 
     def on_deployment_deleted(self, deployment_id: DeploymentID) -> None:
         """Called whenever a deployment is deleted."""
@@ -344,3 +475,6 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
                     replicas_to_stop.add(running_replica)
 
         return replicas_to_stop
+
+    def _detect_compact_opportunities(self) -> Tuple[str, float]:
+        return None, None
