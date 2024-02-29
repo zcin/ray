@@ -333,6 +333,20 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
 
         self._recovering_replicas[deployment_id].add(replica_name)
 
+    def _get_node_to_running_replicas(
+        self, deployment_id: Optional[DeploymentID] = None
+    ) -> Dict[str, Set]:
+        res = defaultdict(set)
+        if deployment_id:
+            for replica_id, node_id in self._running_replicas[deployment_id].items():
+                res[node_id].add(replica_id)
+        else:
+            for _, replicas in self._running_replicas.items():
+                for replica_id, node_id in replicas.items():
+                    res[node_id].add(replica_id)
+
+        return res
+
     def schedule(
         self,
         upscales: Dict[DeploymentID, List[ReplicaSchedulingRequest]],
@@ -445,29 +459,25 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
             else:
                 replicas_to_stop.add(pending_launching_recovering_replica)
 
-        node_to_running_replicas_of_target_deployment = defaultdict(set)
-        for running_replica, node_id in self._running_replicas[deployment_id].items():
-            node_to_running_replicas_of_target_deployment[node_id].add(running_replica)
-
-        node_to_num_running_replicas_of_all_deployments = {}
-        for _, running_replicas in self._running_replicas.items():
-            for running_replica, node_id in running_replicas.items():
-                node_to_num_running_replicas_of_all_deployments[node_id] = (
-                    node_to_num_running_replicas_of_all_deployments.get(node_id, 0) + 1
-                )
+        node_to_running_replicas_of_target_deployment = (
+            self._get_node_to_running_replicas(deployment_id)
+        )
+        node_to_running_replicas_of_all_deployments = (
+            self._get_node_to_running_replicas()
+        )
 
         # Replicas on the head node has the lowest priority for downscaling
         # since we cannot relinquish the head node.
         def key(node_and_num_running_replicas_of_all_deployments):
             return (
-                node_and_num_running_replicas_of_all_deployments[1]
+                len(node_and_num_running_replicas_of_all_deployments[1])
                 if node_and_num_running_replicas_of_all_deployments[0]
                 != self._head_node_id
                 else sys.maxsize
             )
 
         for node_id, _ in sorted(
-            node_to_num_running_replicas_of_all_deployments.items(), key=key
+            node_to_running_replicas_of_all_deployments.items(), key=key
         ):
             if node_id not in node_to_running_replicas_of_target_deployment:
                 continue
