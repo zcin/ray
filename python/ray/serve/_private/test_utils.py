@@ -461,3 +461,8 @@ class FakeCounter:
 
     def get_tags(self):
         return self.tags
+
+
+@ray.remote
+def get_node_id():
+    return ray.get_runtime_context().get_node_id()
