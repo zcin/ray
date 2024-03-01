@@ -401,6 +401,18 @@ def deployment(
         logging_config=logging_config,
     )
     deployment_config.user_configured_option_names = set(user_configured_option_names)
+    if (
+        deployment_config.autoscaling_config
+        and "target_num_ongoing_requests_per_replica"
+        in deployment_config.autoscaling_config.dict(exclude_unset=True)
+    ):
+        logger.warning(
+            "DeprecationWarning: `target_num_ongoing_requests_per_replica` in "
+            "`autoscaling_config` has been deprecated and replaced by "
+            "`target_ongoing_requests`. Note that "
+            "`target_num_ongoing_requests_per_replica` will be removed in a future "
+            "version."
+        )
 
     def decorator(_func_or_class):
         replica_config = ReplicaConfig.create(

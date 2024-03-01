@@ -183,11 +183,6 @@ class Deployment:
     @property
     def max_concurrent_queries(self) -> int:
         """[DEPRECATED] Max number of requests a replica can handle at once."""
-
-        logger.warning(
-            "DeprecationWarning: `max_concurrent_queries` is deprecated, please use "
-            "`max_ongoing_requests` instead."
-        )
         return self._deployment_config.max_ongoing_requests
 
     @property
@@ -459,6 +454,18 @@ class Deployment:
 
         if autoscaling_config is not DEFAULT.VALUE:
             new_deployment_config.autoscaling_config = autoscaling_config
+            if (
+                new_deployment_config.autoscaling_config
+                and "target_num_ongoing_requests_per_replica"
+                in new_deployment_config.autoscaling_config.dict(exclude_unset=True)
+            ):
+                logger.warning(
+                    "DeprecationWarning: `target_num_ongoing_requests_per_replica` in "
+                    "`autoscaling_config` has been deprecated and replaced by "
+                    "`target_ongoing_requests`. Note that "
+                    "`target_num_ongoing_requests_per_replica` will be removed in a "
+                    "future version."
+                )
 
         if graceful_shutdown_wait_loop_s is not DEFAULT.VALUE:
             new_deployment_config.graceful_shutdown_wait_loop_s = (
