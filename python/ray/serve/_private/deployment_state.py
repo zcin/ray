@@ -38,6 +38,7 @@ from ray.serve._private.constants import (
     RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE,
     RAY_SERVE_EAGERLY_START_REPLACEMENT_REPLICAS,
     RAY_SERVE_FORCE_STOP_UNHEALTHY_REPLICAS,
+    RAY_SERVE_USE_COMPACT_SCHEDULING_STRATEGY,
     REPLICA_HEALTH_CHECK_UNHEALTHY_THRESHOLD,
     SERVE_LOGGER_NAME,
     SERVE_NAMESPACE,
@@ -2317,8 +2318,13 @@ class DeploymentState:
 
         return to_stop, remaining
 
-    def _migrate_replicas_on_draining_nodes(self):
+    def _migrate_replicas_on_draining_nodes(self, in_steady_state: bool):
         draining_node_deadlines = self._cluster_node_info_cache.get_draining_nodes()
+        if RAY_SERVE_USE_COMPACT_SCHEDULING_STRATEGY and in_steady_state:
+            node, deadline = self._deployment_scheduler._detect_compact_opportunities()
+            if node:
+                draining_node_deadlines[node] = deadline
+
         for replica in self._replicas.pop(
             states=[ReplicaState.UPDATING, ReplicaState.RUNNING, ReplicaState.STARTING]
         ):
@@ -2361,7 +2367,7 @@ class DeploymentState:
         for replica in replicas_to_keep:
             self._replicas.add(ReplicaState.PENDING_MIGRATION, replica)
 
-    def update(self) -> DeploymentStateUpdateResult:
+    def update(self, in_steady_state: bool) -> DeploymentStateUpdateResult:
         """Attempts to reconcile this deployment to match its goal state.
 
         This is an asynchronous call; it's expected to be called repeatedly.
@@ -2381,7 +2387,7 @@ class DeploymentState:
             # Check the state of existing replicas and transition if necessary.
             self._check_and_update_replicas()
 
-            self._migrate_replicas_on_draining_nodes()
+            self._migrate_replicas_on_draining_nodes(in_steady_state)
 
             upscale, downscale = self._scale_deployment_replicas()
 
@@ -2805,11 +2811,15 @@ class DeploymentStateManager:
         upscales = {}
         downscales = {}
 
+        in_steady_state = all(
+            ds.curr_status_info.status == DeploymentStatus.HEALTHY
+            for ds in self._deployment_states.values()
+        )
         for deployment_id, deployment_state in self._deployment_states.items():
             if deployment_state.should_autoscale():
                 deployment_state.autoscale()
 
-            deployment_state_update_result = deployment_state.update()
+            deployment_state_update_result = deployment_state.update(in_steady_state)
             if deployment_state_update_result.upscale:
                 upscales[deployment_id] = deployment_state_update_result.upscale
             if deployment_state_update_result.downscale:
