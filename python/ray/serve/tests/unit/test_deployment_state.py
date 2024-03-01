@@ -41,7 +41,11 @@ from ray.serve._private.deployment_state import (
     ReplicaStateContainer,
     VersionedReplica,
 )
-from ray.serve._private.test_utils import MockKVStore, MockTimer
+from ray.serve._private.test_utils import (
+    MockClusterNodeInfoCache,
+    MockKVStore,
+    MockTimer,
+)
 from ray.serve._private.utils import (
     get_capacity_adjusted_num_replicas,
     get_random_string,
@@ -309,24 +313,6 @@ def deployment_info(
 
 def deployment_version(code_version) -> DeploymentVersion:
     return DeploymentVersion(code_version, DeploymentConfig(), {})
-
-
-class MockClusterNodeInfoCache:
-    def __init__(self):
-        self.alive_node_ids = set()
-        self.draining_nodes = dict()
-
-    def get_alive_node_ids(self):
-        return self.alive_node_ids
-
-    def get_draining_nodes(self):
-        return self.draining_nodes
-
-    def get_active_node_ids(self):
-        return self.alive_node_ids - set(self.draining_nodes)
-
-    def get_node_az(self, node_id):
-        return None
 
 
 @pytest.fixture

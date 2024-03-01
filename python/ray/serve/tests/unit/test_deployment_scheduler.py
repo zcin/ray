@@ -1,15 +1,22 @@
 import random
 import sys
 from typing import List
+from unittest.mock import Mock
 
 import pytest
 
 import ray
+from ray.serve._private.common import DeploymentID
+from ray.serve._private.constants import RAY_SERVE_USE_COMPACT_SCHEDULING_STRATEGY
 from ray.serve._private.deployment_scheduler import (
+    DefaultDeploymentScheduler,
+    DeploymentDownscaleRequest,
     DeploymentSchedulingInfo,
+    ReplicaSchedulingRequest,
     Resources,
     SpreadDeploymentSchedulingPolicy,
 )
+from ray.serve._private.test_utils import MockClusterNodeInfoCache
 from ray.tests.conftest import *  # noqa
 
 
@@ -158,6 +165,207 @@ class TestResources:
         a -= b
         assert a.get(implicit_resource) == 0
         assert not a.can_fit(b)
+
+
+class TestSpreadScheduling:
+    @pytest.mark.skipif(
+        RAY_SERVE_USE_COMPACT_SCHEDULING_STRATEGY,
+        reason="Need to use spread strategy",
+    )
+    def test_downscale_multiple_deployments(self):
+        """Test to make sure downscale prefers replicas without node id
+        and then replicas on a node with fewest replicas of all deployments.
+        """
+
+        cluster_node_info_cache = MockClusterNodeInfoCache()
+        scheduler = DefaultDeploymentScheduler(
+            cluster_node_info_cache, head_node_id="fake-head-node-id"
+        )
+
+        d1_id = DeploymentID(name="deployment1")
+        d2_id = DeploymentID(name="deployment2")
+        scheduler.on_deployment_created(d1_id, SpreadDeploymentSchedulingPolicy())
+        scheduler.on_deployment_created(d2_id, SpreadDeploymentSchedulingPolicy())
+        scheduler.on_replica_running(d1_id, "replica1", "node1")
+        scheduler.on_replica_running(d1_id, "replica2", "node2")
+        scheduler.on_replica_running(d1_id, "replica3", "node2")
+        scheduler.on_replica_running(d2_id, "replica1", "node1")
+        scheduler.on_replica_running(d2_id, "replica2", "node2")
+        scheduler.on_replica_running(d2_id, "replica3", "node1")
+        scheduler.on_replica_running(d2_id, "replica4", "node1")
+        deployment_to_replicas_to_stop = scheduler.schedule(
+            upscales={},
+            downscales={
+                d1_id: DeploymentDownscaleRequest(deployment_id=d1_id, num_to_stop=1)
+            },
+        )
+        assert len(deployment_to_replicas_to_stop) == 1
+        # Even though node1 has fewest replicas of deployment1
+        # but it has more replicas of all deployments so
+        # we should stop replicas from node2.
+        assert len(deployment_to_replicas_to_stop[d1_id]) == 1
+        assert deployment_to_replicas_to_stop[d1_id] < {"replica2", "replica3"}
+
+        scheduler.on_replica_stopping(d1_id, "replica3")
+        scheduler.on_replica_stopping(d2_id, "replica3")
+        scheduler.on_replica_stopping(d2_id, "replica4")
+
+        deployment_to_replicas_to_stop = scheduler.schedule(
+            upscales={},
+            downscales={
+                d1_id: DeploymentDownscaleRequest(deployment_id=d1_id, num_to_stop=1),
+                d2_id: DeploymentDownscaleRequest(deployment_id=d2_id, num_to_stop=1),
+            },
+        )
+        assert len(deployment_to_replicas_to_stop) == 2
+        # We should stop replicas from the same node.
+        assert len(deployment_to_replicas_to_stop[d1_id]) == 1
+        assert (
+            deployment_to_replicas_to_stop[d1_id]
+            == deployment_to_replicas_to_stop[d2_id]
+        )
+
+        scheduler.on_replica_stopping(d1_id, "replica1")
+        scheduler.on_replica_stopping(d1_id, "replica2")
+        scheduler.on_replica_stopping(d2_id, "replica1")
+        scheduler.on_replica_stopping(d2_id, "replica2")
+        scheduler.on_deployment_deleted(d1_id)
+        scheduler.on_deployment_deleted(d2_id)
+
+    @pytest.mark.skipif(
+        RAY_SERVE_USE_COMPACT_SCHEDULING_STRATEGY,
+        reason="Need to use spread strategy",
+    )
+    def test_downscale_single_deployment(self):
+        """Test to make sure downscale prefers replicas without node id
+        and then replicas on a node with fewest replicas of all deployments.
+        """
+
+        dep_id = DeploymentID(name="deployment1")
+        cluster_node_info_cache = MockClusterNodeInfoCache()
+        scheduler = DefaultDeploymentScheduler(
+            cluster_node_info_cache, head_node_id="fake-head-node-id"
+        )
+
+        scheduler.on_deployment_created(dep_id, SpreadDeploymentSchedulingPolicy())
+        scheduler.on_replica_running(dep_id, "replica1", "node1")
+        scheduler.on_replica_running(dep_id, "replica2", "node1")
+        scheduler.on_replica_running(dep_id, "replica3", "node2")
+        scheduler.on_replica_recovering(dep_id, "replica4")
+        deployment_to_replicas_to_stop = scheduler.schedule(
+            upscales={},
+            downscales={
+                dep_id: DeploymentDownscaleRequest(deployment_id=dep_id, num_to_stop=1)
+            },
+        )
+        assert len(deployment_to_replicas_to_stop) == 1
+        # Prefer replica without node id
+        assert deployment_to_replicas_to_stop[dep_id] == {"replica4"}
+        scheduler.on_replica_stopping(dep_id, "replica4")
+
+        deployment_to_replicas_to_stop = scheduler.schedule(
+            upscales={
+                dep_id: [
+                    ReplicaSchedulingRequest(
+                        deployment_id=dep_id,
+                        replica_name="replica5",
+                        actor_def=Mock(),
+                        actor_resources={"CPU": 1},
+                        actor_options={},
+                        actor_init_args=(),
+                        on_scheduled=lambda actor_handle, placement_group: actor_handle,
+                    ),
+                ]
+            },
+            downscales={},
+        )
+        assert not deployment_to_replicas_to_stop
+        deployment_to_replicas_to_stop = scheduler.schedule(
+            upscales={},
+            downscales={
+                dep_id: DeploymentDownscaleRequest(deployment_id=dep_id, num_to_stop=1)
+            },
+        )
+        assert len(deployment_to_replicas_to_stop) == 1
+        # Prefer replica without node id
+        assert deployment_to_replicas_to_stop[dep_id] == {"replica5"}
+        scheduler.on_replica_stopping(dep_id, "replica5")
+
+        deployment_to_replicas_to_stop = scheduler.schedule(
+            upscales={},
+            downscales={
+                dep_id: DeploymentDownscaleRequest(deployment_id=dep_id, num_to_stop=1)
+            },
+        )
+        assert len(deployment_to_replicas_to_stop) == 1
+        # Prefer replica on a node with fewest replicas of all deployments.
+        assert deployment_to_replicas_to_stop[dep_id] == {"replica3"}
+        scheduler.on_replica_stopping(dep_id, "replica3")
+
+        deployment_to_replicas_to_stop = scheduler.schedule(
+            upscales={},
+            downscales={
+                dep_id: DeploymentDownscaleRequest(deployment_id=dep_id, num_to_stop=2)
+            },
+        )
+        assert len(deployment_to_replicas_to_stop) == 1
+        assert deployment_to_replicas_to_stop[dep_id] == {"replica1", "replica2"}
+        scheduler.on_replica_stopping(dep_id, "replica1")
+        scheduler.on_replica_stopping(dep_id, "replica2")
+        scheduler.on_deployment_deleted(dep_id)
+
+    @pytest.mark.skipif(
+        RAY_SERVE_USE_COMPACT_SCHEDULING_STRATEGY,
+        reason="Need to use spread strategy",
+    )
+    def test_downscale_head_node(self):
+        """Test to make sure downscale deprioritizes replicas on the head node."""
+
+        head_node_id = "fake-head-node-id"
+        dep_id = DeploymentID(name="deployment1")
+        cluster_node_info_cache = MockClusterNodeInfoCache()
+        scheduler = DefaultDeploymentScheduler(
+            cluster_node_info_cache, head_node_id=head_node_id
+        )
+
+        scheduler.on_deployment_created(dep_id, SpreadDeploymentSchedulingPolicy())
+        scheduler.on_replica_running(dep_id, "replica1", head_node_id)
+        scheduler.on_replica_running(dep_id, "replica2", "node2")
+        scheduler.on_replica_running(dep_id, "replica3", "node2")
+        deployment_to_replicas_to_stop = scheduler.schedule(
+            upscales={},
+            downscales={
+                dep_id: DeploymentDownscaleRequest(deployment_id=dep_id, num_to_stop=1)
+            },
+        )
+        assert len(deployment_to_replicas_to_stop) == 1
+        assert deployment_to_replicas_to_stop[dep_id] < {"replica2", "replica3"}
+        scheduler.on_replica_stopping(
+            dep_id, deployment_to_replicas_to_stop[dep_id].pop()
+        )
+
+        deployment_to_replicas_to_stop = scheduler.schedule(
+            upscales={},
+            downscales={
+                dep_id: DeploymentDownscaleRequest(deployment_id=dep_id, num_to_stop=1)
+            },
+        )
+        assert len(deployment_to_replicas_to_stop) == 1
+        assert deployment_to_replicas_to_stop[dep_id] < {"replica2", "replica3"}
+        scheduler.on_replica_stopping(
+            dep_id, deployment_to_replicas_to_stop[dep_id].pop()
+        )
+
+        deployment_to_replicas_to_stop = scheduler.schedule(
+            upscales={},
+            downscales={
+                dep_id: DeploymentDownscaleRequest(deployment_id=dep_id, num_to_stop=1)
+            },
+        )
+        assert len(deployment_to_replicas_to_stop) == 1
+        assert deployment_to_replicas_to_stop[dep_id] == {"replica1"}
+        scheduler.on_replica_stopping(dep_id, "replica1")
+        scheduler.on_deployment_deleted(dep_id)
 
 
 def test_deployment_scheduling_info():
