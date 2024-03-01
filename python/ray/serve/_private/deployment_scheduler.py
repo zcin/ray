@@ -583,6 +583,10 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
     ):
         replica_name = scheduling_request.replica_name
         deployment_id = scheduling_request.deployment_id
+        max_replicas_per_node = scheduling_request.max_replicas_per_node
+        actor_options = copy.copy(scheduling_request.actor_options)
+
+        # Get the amount of resources required to schedule this replica on a node
         if (
             scheduling_request.placement_group_bundles
             and scheduling_request.placement_group_strategy == "STRICT_PACK"
@@ -594,6 +598,20 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
             required_resources = sum(bundle_resources, Resources())
         else:
             required_resources = Resources(scheduling_request.actor_resources)
+
+        # Using implicit resource (resources that every node
+        # implicitly has and total is 1)
+        # to limit the number of replicas on a single node.
+        if max_replicas_per_node is not None:
+            implicit_resource = (
+                f"{ray._raylet.IMPLICIT_RESOURCE_PREFIX}"
+                f"{deployment_id.app}:{deployment_id.name}"
+            )
+            required_resources[implicit_resource] = 1.0 / max_replicas_per_node
+
+            if "resources" not in actor_options:
+                actor_options["resources"] = {}
+            actor_options["resources"][implicit_resource] = 1.0 / max_replicas_per_node
 
         # Get node
         target_node = self._find_best_available_node(
@@ -622,7 +640,6 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
                     node_id=target_node, soft=True
                 )
 
-        actor_options = copy.copy(scheduling_request.actor_options)
         actor_handle = scheduling_request.actor_def.options(
             scheduling_strategy=scheduling_strategy,
             **actor_options,
