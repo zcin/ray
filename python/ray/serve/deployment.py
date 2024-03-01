@@ -183,11 +183,6 @@ class Deployment:
     @property
     def max_concurrent_queries(self) -> int:
         """[DEPRECATED] Max number of requests a replica can handle at once."""
-
-        logger.warning(
-            "DeprecationWarning: `max_concurrent_queries` is deprecated, please use "
-            "`max_ongoing_requests` instead."
-        )
         return self._deployment_config.max_ongoing_requests
 
     @property
