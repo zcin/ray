@@ -11,6 +11,7 @@ from ray.serve._private.cluster_node_info_cache import ClusterNodeInfoCache
 from ray.serve._private.common import DeploymentID
 from ray.serve._private.config import ReplicaConfig
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
+from ray.serve._private.constants import RAY_SERVE_USE_COMPACT_SCHEDULING_STRATEGY
 
 
 class SpreadDeploymentSchedulingPolicy:
@@ -367,11 +368,14 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
                     replica_scheduling_request.replica_name
                 ] = replica_scheduling_request
 
-        for deployment_id, pending_replicas in self._pending_replicas.items():
-            if not pending_replicas:
-                continue
+        if RAY_SERVE_USE_COMPACT_SCHEDULING_STRATEGY:
+            pass
+        else:
+            for deployment_id, pending_replicas in self._pending_replicas.items():
+                if not pending_replicas:
+                    continue
 
-            self._schedule_spread_deployment(deployment_id)
+                self._schedule_spread_deployment(deployment_id)
 
         deployment_to_replicas_to_stop = {}
         for downscale in downscales.values():
