@@ -328,6 +328,15 @@ class MockClusterNodeInfoCache:
     def get_node_az(self, node_id):
         return None
 
+    def get_available_resources_per_node(self):
+        return {node_id: dict() for node_id in self.alive_node_ids}
+
+    def get_total_resources_per_node(self):
+        return {node_id: dict() for node_id in self.alive_node_ids}
+
+    def add_node(self, node_id: str):
+        self.alive_node_ids.add(node_id)
+
 
 @pytest.fixture
 def mock_deployment_state() -> Tuple[DeploymentState, Mock, Mock]:
@@ -343,6 +352,7 @@ def mock_deployment_state() -> Tuple[DeploymentState, Mock, Mock]:
             pass
 
         cluster_node_info_cache = MockClusterNodeInfoCache()
+        cluster_node_info_cache.add_node("node-id")
 
         deployment_state = DeploymentState(
             DeploymentID(name="name", app_name="my_app"),
@@ -381,6 +391,7 @@ def mock_deployment_state_manager(
     ):
         kv_store = MockKVStore()
         cluster_node_info_cache = MockClusterNodeInfoCache()
+        cluster_node_info_cache.add_node("node-id")
 
         def create_deployment_state_manager(
             actor_names=None, placement_group_names=None
@@ -4601,7 +4612,8 @@ class TestStopReplicasOnDrainingNodes:
         """Test that pending migration replicas of old versions are updated."""
 
         create_dsm, timer, cluster_node_info_cache = mock_deployment_state_manager
-        cluster_node_info_cache.alive_node_ids = {"node-1", "node-2"}
+        cluster_node_info_cache.add_node("node-1")
+        cluster_node_info_cache.add_node("node-2")
         dsm: DeploymentStateManager = create_dsm()
         timer.reset(0)
 
