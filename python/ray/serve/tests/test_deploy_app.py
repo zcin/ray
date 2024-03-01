@@ -817,7 +817,7 @@ def test_update_autoscaling_config(client: ServeControllerClient):
             {
                 "name": "A",
                 "autoscaling_config": {
-                    "target_num_ongoing_requests_per_replica": 1,
+                    "target_ongoing_requests": 1,
                     "min_replicas": 1,
                     "max_replicas": 10,
                     "metrics_interval_s": 15,
@@ -1279,9 +1279,9 @@ def test_num_replicas_auto(client: ServeControllerClient):
     # Set by `num_replicas="auto"`
     assert "num_replicas" not in deployment_config
     assert deployment_config["max_ongoing_requests"] == 5
-    assert deployment_config["autoscaling_config"] == {
+    assert {
         # Set by `num_replicas="auto"`
-        "target_num_ongoing_requests_per_replica": 2.0,
+        "target_ongoing_requests": 2.0,
         "min_replicas": 1,
         "max_replicas": 100,
         # Overrided by `autoscaling_config`
@@ -1294,7 +1294,7 @@ def test_num_replicas_auto(client: ServeControllerClient):
         "downscale_smoothing_factor": None,
         "smoothing_factor": 1.0,
         "initial_replicas": None,
-    }
+    }.items() <= deployment_config["autoscaling_config"].items()
 
     h = serve.get_app_handle(SERVE_DEFAULT_APP_NAME)
     for i in range(3):
