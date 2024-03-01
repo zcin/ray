@@ -461,3 +461,15 @@ class FakeCounter:
 
     def get_tags(self):
         return self.tags
+
+
+@ray.remote
+def get_node_id():
+    return ray.get_runtime_context().get_node_id()
+
+
+def check_num_alive_nodes(target: int):
+    alive_nodes = [node for node in ray.nodes() if node["Alive"]]
+    assert len(alive_nodes) == target
+    return True
+

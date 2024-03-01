@@ -10,7 +10,11 @@ import ray
 from ray.serve._private.cluster_node_info_cache import ClusterNodeInfoCache
 from ray.serve._private.common import DeploymentID
 from ray.serve._private.config import ReplicaConfig
-from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
+from ray.serve._private.constants import RAY_SERVE_USE_COMPACT_SCHEDULING_STRATEGY
+from ray.util.scheduling_strategies import (
+    NodeAffinitySchedulingStrategy,
+    PlacementGroupSchedulingStrategy,
+)
 
 
 class SpreadDeploymentSchedulingPolicy:
@@ -164,6 +168,12 @@ class DeploymentSchedulingInfo:
         )
 
 
+@dataclass
+class LaunchingReplicaInfo:
+    az: Optional[str] = None
+    node_id: Optional[str] = None
+
+
 class DeploymentScheduler(ABC):
     """A centralized scheduler for all Serve deployments.
 
@@ -294,6 +304,75 @@ class DeploymentScheduler(ABC):
 
         return res
 
+    def _get_available_resources_per_node(self) -> Dict[str, Resources]:
+        available_resources = (
+            self._cluster_node_info_cache.get_available_resources_per_node()
+        )
+        total_resources = self._cluster_node_info_cache.get_total_resources_per_node()
+
+        gcs_info = {node_id: Resources(r) for node_id, r in available_resources.items()}
+
+        # Manually calculate available resources per node by subtracting
+        # launching and running replicas from total resources
+        available_minus_replicas = {
+            node_id: Resources(resources)
+            for node_id, resources in total_resources.items()
+        }
+        for deployment_id, replicas in self._launching_replicas.items():
+            for info in replicas.values():
+                if info.node_id:
+                    available_minus_replicas[info.node_id] -= self._deployments[
+                        deployment_id
+                    ].required_resources
+        for deployment_id, replicas in self._running_replicas.items():
+            for node_id in replicas.values():
+                available_minus_replicas[node_id] -= self._deployments[
+                    deployment_id
+                ].required_resources
+
+        def custom_min(a: Resources, b: Resources):
+            keys = set(a.keys()) | set(b.keys())
+            res = Resources()
+            for key in keys:
+                res[key] = min(a.get(key), b.get(key))
+            return res
+
+        # Filter by active node ids (alive but not draining)
+        return {
+            node_id: custom_min(gcs_info[node_id], available_minus_replicas[node_id])
+            for node_id in self._cluster_node_info_cache.get_active_node_ids()
+        }
+
+    def _best_fit_node(
+        self, required_resources: Resources, available_resources: Dict[str, Resources]
+    ) -> Optional[str]:
+        """Chooses a node using best fit strategy.
+
+        This strategy picks the node where, if the required resources
+        were to be scheduled on that node, it will leave the smallest
+        remaining space. This minimizes fragmentation of resources.
+        """
+
+        min_remaining_space = Resources(
+            {
+                "CPU": float("inf"),
+                "GPU": float("inf"),
+                "memory": float("inf"),
+            }
+        )
+        chosen_node = None
+
+        for node_id in available_resources:
+            remaining_space = available_resources[node_id] - required_resources
+            if (
+                available_resources[node_id].can_fit(required_resources)
+                and remaining_space < min_remaining_space
+            ):
+                min_remaining_space = remaining_space
+                chosen_node = node_id
+
+        return chosen_node
+
     @abstractmethod
     def schedule(
         self,
@@ -338,11 +417,43 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
                     replica_scheduling_request.replica_name
                 ] = replica_scheduling_request
 
-        for deployment_id, pending_replicas in self._pending_replicas.items():
-            if not pending_replicas:
-                continue
+        non_strict_pack_pgs_exist = any(
+            d.is_non_strict_pack_pg() for d in self._deployments.values()
+        )
+        # Schedule replicas using compact strategy.
+        if RAY_SERVE_USE_COMPACT_SCHEDULING_STRATEGY and not non_strict_pack_pgs_exist:
 
-            self._schedule_spread_deployment(deployment_id)
+            def key(req: ReplicaSchedulingRequest):
+                if (
+                    req.placement_group_bundles
+                    and req.placement_group_strategy == "STRICT_PACK"
+                ):
+                    return sum(
+                        [Resources(bundle) for bundle in req.placement_group_bundles],
+                        Resources(),
+                    )
+                else:
+                    return Resources(req.actor_resources)
+
+            # Flatten dict of deployment replicas into all replicas,
+            # then sort by decreasing resource size
+            replica_scheduling_requests = [
+                scheduling_request
+                for replicas in self._pending_replicas.values()
+                for scheduling_request in replicas.values()
+            ]
+
+            replica_scheduling_requests.sort(key=key, reverse=True)
+
+            # Schedule each replica
+            for scheduling_request in replica_scheduling_requests:
+                self._schedule_replica_compactly(scheduling_request)
+        else:
+            for deployment_id, pending_replicas in self._pending_replicas.items():
+                if not pending_replicas:
+                    continue
+
+                self._schedule_spread_deployment(deployment_id)
 
         deployment_to_replicas_to_stop = {}
         for downscale in downscales.values():
@@ -397,7 +508,9 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
             ).remote(*replica_scheduling_request.actor_init_args)
 
             del self._pending_replicas[deployment_id][pending_replica_name]
-            self._launching_replicas[deployment_id][pending_replica_name] = None
+            self._launching_replicas[deployment_id][
+                pending_replica_name
+            ] = LaunchingReplicaInfo()
             replica_scheduling_request.on_scheduled(
                 actor_handle, placement_group=placement_group
             )
@@ -461,6 +574,115 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
                     replicas_to_stop.add(running_replica)
 
         return replicas_to_stop
+
+    def _schedule_replica_compactly(
+        self,
+        scheduling_request: ReplicaSchedulingRequest,
+    ):
+        replica_name = scheduling_request.replica_name
+        deployment_id = scheduling_request.deployment_id
+        max_replicas_per_node = scheduling_request.max_replicas_per_node
+        actor_options = copy.copy(scheduling_request.actor_options)
+
+        # Get the amount of resources required to schedule this replica on a node
+        if (
+            scheduling_request.placement_group_bundles
+            and scheduling_request.placement_group_strategy == "STRICT_PACK"
+        ):
+            bundle_resources = [
+                Resources(bundle)
+                for bundle in scheduling_request.placement_group_bundles
+            ]
+            required_resources = sum(bundle_resources, Resources())
+        else:
+            required_resources = Resources(scheduling_request.actor_resources)
+
+        # Using implicit resource (resources that every node
+        # implicitly has and total is 1)
+        # to limit the number of replicas on a single node.
+        if max_replicas_per_node is not None:
+            implicit_resource = (
+                f"{ray._raylet.IMPLICIT_RESOURCE_PREFIX}"
+                f"{deployment_id.app}:{deployment_id.name}"
+            )
+            required_resources[implicit_resource] = 1.0 / max_replicas_per_node
+
+            if "resources" not in actor_options:
+                actor_options["resources"] = {}
+            actor_options["resources"][implicit_resource] = 1.0 / max_replicas_per_node
+
+        # Get node
+        target_node = self._find_best_available_node(
+            required_resources, self._get_available_resources_per_node()
+        )
+
+        # Decide on scheduling strategy
+        pg = None
+        if scheduling_request.placement_group_bundles:
+            assert scheduling_request.placement_group_strategy == "STRICT_PACK"
+            pg = ray.util.placement_group(
+                scheduling_request.placement_group_bundles,
+                "STRICT_PACK",
+                _soft_target_node_id=target_node,
+            )
+            scheduling_strategy = PlacementGroupSchedulingStrategy(
+                placement_group=pg,
+                placement_group_capture_child_tasks=True,
+            )
+        else:
+            if target_node is None:
+                # This will likely trigger cluster autoscaling
+                scheduling_strategy = "DEFAULT"
+            else:
+                scheduling_strategy = NodeAffinitySchedulingStrategy(
+                    node_id=target_node, soft=True
+                )
+
+        actor_handle = scheduling_request.actor_def.options(
+            scheduling_strategy=scheduling_strategy,
+            **actor_options,
+        ).remote(*scheduling_request.actor_init_args)
+
+        del self._pending_replicas[deployment_id][replica_name]
+        self._launching_replicas[deployment_id][replica_name] = LaunchingReplicaInfo(
+            node_id=target_node
+        )
+        scheduling_request.on_scheduled(actor_handle, placement_group=pg)
+
+    def _find_best_available_node(
+        self,
+        required_resources: Resources,
+        available_resources_per_node: Dict[str, Resources],
+    ) -> Optional[str]:
+        """Chooses best available node to schedule the required resources.
+
+        If there are available nodes, returns the node ID of the best
+        available node, minimizing fragmentation. Prefers non-idle nodes
+        over idle nodes.
+        """
+
+        node_to_running_replicas = self._get_node_to_running_replicas()
+
+        non_idle_nodes = {
+            node_id: res
+            for node_id, res in available_resources_per_node.items()
+            if len(node_to_running_replicas[node_id]) > 0
+        }
+        idle_nodes = {
+            node_id: res
+            for node_id, res in available_resources_per_node.items()
+            if len(node_to_running_replicas[node_id]) == 0
+        }
+
+        # 1. Prefer non-idle nodes
+        chosen_node = self._best_fit_node(required_resources, non_idle_nodes)
+        if chosen_node:
+            return chosen_node
+
+        # 2. Consider idle nodes last
+        chosen_node = self._best_fit_node(required_resources, idle_nodes)
+        if chosen_node:
+            return chosen_node
 
     def detect_compact_opportunities(self) -> Tuple[str, float]:
         return None, None
