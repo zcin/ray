@@ -12,7 +12,7 @@ from ray._private.test_utils import SignalActor, wait_for_condition
 from ray.cluster_utils import Cluster
 from ray.exceptions import RayActorError
 from ray.serve._private.common import DeploymentID, ReplicaState
-from ray.serve._private.constants import SERVE_NAMESPACE
+from ray.serve._private.constants import SERVE_NAMESPACE, RAY_SERVE_USE_COMPACT_SCHEDULING_STRATEGY
 from ray.serve._private.deployment_state import ReplicaStartupStatus
 from ray.serve._private.utils import calculate_remaining_timeout, get_head_node_id
 from ray.serve.context import _get_global_client
@@ -249,6 +249,7 @@ def test_intelligent_scale_down(ray_cluster):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Flaky on Windows.")
+@pytest.mark.skipif(RAY_SERVE_USE_COMPACT_SCHEDULING_STRATEGY, "Needs spread strategy.")
 def test_replica_spread(ray_cluster):
     cluster = ray_cluster
 
