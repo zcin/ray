@@ -225,7 +225,7 @@ class MockReplicaActorWrapper:
             deployment_id=self._deployment_id,
             replica_name=self._replica_tag,
             actor_def=Mock(),
-            actor_resources=None,
+            actor_resources={},
             actor_options={},
             actor_init_args=(),
             on_scheduled=_on_scheduled_stub,
@@ -329,6 +329,7 @@ def mock_deployment_state() -> Tuple[DeploymentState, Mock, Mock]:
             pass
 
         cluster_node_info_cache = MockClusterNodeInfoCache()
+        cluster_node_info_cache.add_node("node-id")
 
         deployment_state = DeploymentState(
             DeploymentID(name="name", app_name="my_app"),
