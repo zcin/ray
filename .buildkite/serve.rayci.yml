@@ -44,6 +44,20 @@ steps:
         --build-name servebuild --test-env=EXPECTED_PYTHON_VERSION=3.9
     depends_on: "servebuild"
 
+  - label: ":ray-serve: serve: compact scheduling tests"
+    parallelism: 2
+    tags: 
+      - serve
+      - python
+    instance_type: large
+    soft_fail: true
+    commands:
+      - bazel run //ci/ray_ci:test_in_docker -- //python/ray/serve/... //python/ray/tests/...  serve 
+        --except-tags post_wheel_build,gpu,worker-container,ha_integration
+        --workers "$${BUILDKITE_PARALLEL_JOB_COUNT}" --worker-id "$${BUILDKITE_PARALLEL_JOB}" --parallelism-per-worker 3
+        --build-name servebuild --test-env=EXPECTED_PYTHON_VERSION=3.9 --test-env=RAY_SERVE_USE_COMPACT_SCHEDULING_STRATEGY=1
+    depends_on: "servebuild"
+
   - label: ":ray-serve: serve: pydantic < 2.0 tests"
     parallelism: 2
     tags: 
