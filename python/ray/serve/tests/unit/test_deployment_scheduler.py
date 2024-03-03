@@ -3,6 +3,7 @@ import sys
 from copy import copy
 from typing import Dict, List, Optional
 from unittest.mock import Mock
+from collections import defaultdict
 
 import pytest
 
@@ -213,6 +214,7 @@ class TestResources:
 
 def test_deployment_scheduling_info():
     info = DeploymentSchedulingInfo(
+        deployment_id=DeploymentID("a", "b"),
         scheduling_policy=SpreadDeploymentSchedulingPolicy,
         actor_resources=Resources.from_ray_resource_dict({"CPU": 2, "GPU": 1}),
     )
@@ -222,6 +224,7 @@ def test_deployment_scheduling_info():
     assert not info.is_non_strict_pack_pg()
 
     info = DeploymentSchedulingInfo(
+        deployment_id=DeploymentID("a", "b"),
         scheduling_policy=SpreadDeploymentSchedulingPolicy,
         actor_resources=Resources.from_ray_resource_dict({"CPU": 2, "GPU": 1}),
         placement_group_bundles=[
@@ -236,6 +239,7 @@ def test_deployment_scheduling_info():
     assert not info.is_non_strict_pack_pg()
 
     info = DeploymentSchedulingInfo(
+        deployment_id=DeploymentID("a", "b"),
         scheduling_policy=SpreadDeploymentSchedulingPolicy,
         actor_resources=Resources.from_ray_resource_dict({"CPU": 2, "GPU": 1}),
         placement_group_bundles=[
@@ -714,6 +718,51 @@ class TestCompactScheduling:
             },
             downscales={},
         )
+
+    def test_max_replicas_per_node(self):
+        d_id1 = DeploymentID(name="deployment1")
+
+        cluster_node_info_cache = MockClusterNodeInfoCache()
+        cluster_node_info_cache.add_node("node1", {"CPU": 10})
+        cluster_node_info_cache.add_node("node2", {"CPU": 100})
+
+        scheduler = default_impl.create_deployment_scheduler(
+            cluster_node_info_cache,
+            head_node_id_override="fake-head-node-id",
+            create_placement_group_override=None,
+        )
+        scheduler.on_deployment_created(d_id1, SpreadDeploymentSchedulingPolicy())
+        scheduler.on_deployment_deployed(
+            d_id1,
+            ReplicaConfig.create(
+                dummy, ray_actor_options={"num_cpus": 2}, max_replicas_per_node=4
+            ),
+        )
+
+        state = defaultdict(int)
+
+        def on_scheduled(actor_handle, placement_group):
+            scheduling_strategy = actor_handle._options["scheduling_strategy"]
+            assert isinstance(scheduling_strategy, NodeAffinitySchedulingStrategy)
+            state[scheduling_strategy.node_id] += 1
+
+        scheduling_requests = [
+            ReplicaSchedulingRequest(
+                deployment_id=d_id1,
+                replica_name=f"replica{i}",
+                actor_def=MockActorClass(),
+                actor_resources={"CPU": 2},
+                max_replicas_per_node=4,
+                actor_options={},
+                actor_init_args=(),
+                on_scheduled=on_scheduled,
+            )
+            for i in range(5)
+        ]
+
+        scheduler.schedule(upscales={d_id1: scheduling_requests}, downscales={})
+        assert state["node1"] == 4
+        assert state["node2"] == 1
 
 
 if __name__ == "__main__":
