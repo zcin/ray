@@ -146,10 +146,12 @@ class DeploymentDownscaleRequest:
 
 @dataclass
 class DeploymentSchedulingInfo:
+    deployment_id: DeploymentID
     scheduling_policy: Any
     actor_resources: Optional[Resources] = None
     placement_group_bundles: Optional[List[Resources]] = None
     placement_group_strategy: Optional[str] = None
+    max_replicas_per_node: Optional[int] = None
 
     @property
     def required_resources(self) -> Resources:
@@ -157,9 +159,18 @@ class DeploymentSchedulingInfo:
             self.placement_group_bundles is not None
             and self.placement_group_strategy == "STRICT_PACK"
         ):
-            return sum(self.placement_group_bundles, Resources())
+            required = sum(self.placement_group_bundles, Resources())
         else:
-            return self.actor_resources
+            required = self.actor_resources
+
+        if self.max_replicas_per_node:
+            implicit_resource = (
+                f"{ray._raylet.IMPLICIT_RESOURCE_PREFIX}"
+                f"{self.deployment_id.app_name}:{self.deployment_id.name}"
+            )
+            required[implicit_resource] = 1.0 / self.max_replicas_per_node
+
+        return required
 
     def is_non_strict_pack_pg(self) -> bool:
         return (
@@ -219,7 +230,7 @@ class DeploymentScheduler(ABC):
         assert deployment_id not in self._recovering_replicas
         assert deployment_id not in self._running_replicas
         self._deployments[deployment_id] = DeploymentSchedulingInfo(
-            scheduling_policy=scheduling_policy
+            deployment_id=deployment_id, scheduling_policy=scheduling_policy
         )
 
     def on_deployment_deployed(
@@ -229,20 +240,18 @@ class DeploymentScheduler(ABC):
     ) -> None:
         assert deployment_id in self._deployments
 
-        self._deployments[
-            deployment_id
-        ].actor_resources = Resources.from_ray_resource_dict(
+        info = self._deployments[deployment_id]
+        info.actor_resources = Resources.from_ray_resource_dict(
             replica_config.resource_dict
         )
+        info.max_replicas_per_node = replica_config.max_replicas_per_node
         if replica_config.placement_group_bundles:
-            self._deployments[deployment_id].placement_group_bundles = [
+            info.placement_group_bundles = [
                 Resources.from_ray_resource_dict(bundle)
                 for bundle in replica_config.placement_group_bundles
             ]
         if replica_config.placement_group_strategy:
-            self._deployments[
-                deployment_id
-            ].placement_group_strategy = replica_config.placement_group_strategy
+            info.placement_group_strategy = replica_config.placement_group_strategy
 
     def on_deployment_deleted(self, deployment_id: DeploymentID) -> None:
         """Called whenever a deployment is deleted."""
@@ -591,6 +600,10 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
     ):
         replica_name = scheduling_request.replica_name
         deployment_id = scheduling_request.deployment_id
+        max_replicas_per_node = scheduling_request.max_replicas_per_node
+        actor_options = copy.copy(scheduling_request.actor_options)
+
+        # Get the amount of resources required to schedule this replica on a node
         if (
             scheduling_request.placement_group_bundles
             and scheduling_request.placement_group_strategy == "STRICT_PACK"
@@ -602,6 +615,20 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
             required_resources = sum(bundle_resources, Resources())
         else:
             required_resources = Resources(scheduling_request.actor_resources)
+
+        # Using implicit resource (resources that every node
+        # implicitly has and total is 1)
+        # to limit the number of replicas on a single node.
+        if max_replicas_per_node is not None:
+            implicit_resource = (
+                f"{ray._raylet.IMPLICIT_RESOURCE_PREFIX}"
+                f"{deployment_id.app_name}:{deployment_id.name}"
+            )
+            required_resources[implicit_resource] = 1.0 / max_replicas_per_node
+
+            if "resources" not in actor_options:
+                actor_options["resources"] = {}
+            actor_options["resources"][implicit_resource] = 1.0 / max_replicas_per_node
 
         # Get node
         target_node = self._find_best_available_node(
@@ -630,7 +657,6 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
                     node_id=target_node, soft=True
                 )
 
-        actor_options = copy.copy(scheduling_request.actor_options)
         actor_handle = scheduling_request.actor_def.options(
             scheduling_strategy=scheduling_strategy,
             **actor_options,
