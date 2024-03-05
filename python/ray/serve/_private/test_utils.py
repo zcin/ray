@@ -19,6 +19,7 @@ from ray.serve._private.proxy import DRAINING_MESSAGE
 from ray.serve._private.usage import ServeUsageTag
 from ray.serve._private.utils import TimerBase
 from ray.serve.generated import serve_pb2, serve_pb2_grpc
+from ray.serve.context import _get_global_client
 
 TELEMETRY_ROUTE_PREFIX = "/telemetry"
 STORAGE_ACTOR_NAME = "storage"
@@ -163,7 +164,7 @@ def check_deployment_status(name, expected_status) -> DeploymentStatus:
     return True
 
 
-def get_num_running_replicas(
+def get_num_alive_replicas(
     deployment_name: str, app_name: str = SERVE_DEFAULT_APP_NAME
 ) -> int:
     """Get the replicas currently running for the given deployment."""
@@ -183,7 +184,7 @@ def check_num_replicas_gte(
 ) -> int:
     """Check if num replicas is >= target."""
 
-    assert get_num_running_replicas(name, app_name) >= target
+    assert get_num_alive_replicas(name, app_name) >= target
     return True
 
 
@@ -192,7 +193,7 @@ def check_num_replicas_eq(
 ) -> int:
     """Check if num replicas is == target."""
 
-    assert get_num_running_replicas(name, app_name) == target
+    assert get_num_alive_replicas(name, app_name) == target
     return True
 
 
@@ -201,7 +202,7 @@ def check_num_replicas_lte(
 ) -> int:
     """Check if num replicas is <= target."""
 
-    assert get_num_running_replicas(name, app_name) <= target
+    assert get_num_alive_replicas(name, app_name) <= target
     return True
 
 
