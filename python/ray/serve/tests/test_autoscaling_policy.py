@@ -214,11 +214,17 @@ def test_e2e_scale_up_down_basic(min_replicas, serve_instance):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
-@pytest.mark.parametrize("smoothing_factor", [1, 0.2])
-@pytest.mark.parametrize("use_upscale_downscale_config", [True, False])
+@pytest.mark.parametrize("scaling_factor", [1, 0.2])
+@pytest.mark.parametrize(
+    "use_upscale_downscale_config,use_deprecated_smoothing_factor",
+    [(True, True), (True, False), (False, True)],
+)
 @mock.patch("ray.serve._private.router.HANDLE_METRIC_PUSH_INTERVAL_S", 1)
 def test_e2e_scale_up_down_with_0_replica(
-    serve_instance, smoothing_factor, use_upscale_downscale_config
+    serve_instance,
+    scaling_factor,
+    use_upscale_downscale_config,
+    use_deprecated_smoothing_factor,
 ):
     """Send 100 requests and check that we autoscale up, and then back down."""
 
@@ -233,11 +239,12 @@ def test_e2e_scale_up_down_with_0_replica(
         "downscale_delay_s": 0.5,
         "upscale_delay_s": 0,
     }
+    # if use_deprecated_smoothing_factor
     if use_upscale_downscale_config:
-        autoscaling_config["upscale_smoothing_factor"] = smoothing_factor
-        autoscaling_config["downscale_smoothing_factor"] = smoothing_factor
+        autoscaling_config["upscale_smoothing_factor"] = scaling_factor
+        autoscaling_config["downscale_smoothing_factor"] = scaling_factor
     else:
-        autoscaling_config["smoothing_factor"] = smoothing_factor
+        autoscaling_config["smoothing_factor"] = scaling_factor
 
     @serve.deployment(
         autoscaling_config=autoscaling_config,
@@ -459,8 +466,15 @@ def test_e2e_intermediate_downscaling(serve_instance):
 
 
 @pytest.mark.parametrize("initial_replicas", [2, 3])
+@pytest.mark.parametrize(
+    "use_deprecated_smoothing_factor,use_downscaling_factor",
+    [(True, True), (True, False), (False, True)],
+)
 def test_downscaling_with_fractional_smoothing_factor(
-    serve_instance, initial_replicas: int
+    serve_instance,
+    initial_replicas: int,
+    use_deprecated_smoothing_factor: bool,
+    use_downscaling_factor: bool,
 ):
     signal = SignalActor.options(name="signal123").remote()
     signal.send.remote(clear=True)
@@ -475,7 +489,10 @@ def test_downscaling_with_fractional_smoothing_factor(
                     "min_replicas": 0,
                     "max_replicas": 5,
                     "initial_replicas": initial_replicas,
-                    "downscale_smoothing_factor": 0.5,
+                    "downscale_smoothing_factor": 0.5
+                    if use_deprecated_smoothing_factor
+                    else None,
+                    "downscaling_factor": 0.5 if use_downscaling_factor else None,
                     "look_back_period_s": 0.2,
                     "downscale_delay_s": 5,
                 },
