@@ -375,7 +375,7 @@ class DeploymentScheduler(ABC):
 
     def _get_node_to_running_replicas(
         self, deployment_id: Optional[DeploymentID] = None
-    ) -> Dict[str, Set[str]]:
+    ) -> Dict[str, Set[ReplicaID]]:
         res = defaultdict(set)
         if deployment_id:
             for replica_id, node_id in self._running_replicas[deployment_id].items():
@@ -481,7 +481,7 @@ class DeploymentScheduler(ABC):
         self,
         upscales: Dict[DeploymentID, List[ReplicaSchedulingRequest]],
         downscales: Dict[DeploymentID, DeploymentDownscaleRequest],
-    ) -> Dict[DeploymentID, Set[str]]:
+    ) -> Dict[DeploymentID, Set[ReplicaID]]:
         """Called for each update cycle to do batch scheduling.
 
         Args:
@@ -579,7 +579,7 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
         self,
         upscales: Dict[DeploymentID, List[ReplicaSchedulingRequest]],
         downscales: Dict[DeploymentID, DeploymentDownscaleRequest],
-    ) -> Dict[DeploymentID, Set[str]]:
+    ) -> Dict[DeploymentID, Set[ReplicaID]]:
         """Called for each update cycle to do batch scheduling.
 
         Args:
@@ -644,7 +644,7 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
 
     def _get_replicas_to_stop(
         self, deployment_id: DeploymentID, max_num_to_stop: int
-    ) -> Set[str]:
+    ) -> Set[ReplicaID]:
         """Prioritize replicas running on a node with fewest replicas of
             all deployments.
 
