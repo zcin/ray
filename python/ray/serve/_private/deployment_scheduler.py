@@ -308,7 +308,7 @@ class DeploymentScheduler(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def detect_compact_opportunities(self) -> Tuple[str, float]:
+    def detect_compact_opportunities(self) -> Optional[Tuple[str, float]]:
         """Returns a node ID to be compacted and a compaction deadlne."""
         raise NotImplementedError
 
@@ -459,5 +459,5 @@ class DefaultDeploymentScheduler(DeploymentScheduler):
 
         return replicas_to_stop
 
-    def detect_compact_opportunities(self) -> Tuple[str, float]:
-        return None, None
+    def detect_compact_opportunities(self) -> Optional[Tuple[str, float]]:
+        return None
