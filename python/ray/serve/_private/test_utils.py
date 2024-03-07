@@ -163,9 +163,11 @@ def check_telemetry_not_recorded(storage_handle, key):
     )
 
 
-def check_deployment_status(name, expected_status) -> DeploymentStatus:
-    app_status = serve.status().applications[SERVE_DEFAULT_APP_NAME]
-    assert app_status.deployments[name].status == expected_status
+def check_deployment_status(
+    deployment_id: DeploymentID, expected_status: DeploymentStatus
+) -> bool:
+    app_status = serve.status().applications[deployment_id.app_name]
+    assert app_status.deployments[deployment_id.name].status == expected_status
     return True
 
 
