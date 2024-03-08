@@ -483,7 +483,7 @@ class Router:
                     )
                     if isinstance(ref, ray.ObjectRef):
                         ref._on_completed(callback)
-                    else:
+                    elif isinstance(ref, ray.ObjectRefGenerator):
                         ref.completed()._on_completed(callback)
 
                 return ref
