@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 import threading
 import time
@@ -481,7 +482,7 @@ class Router:
                     callback = partial(
                         self._metrics_manager.process_finished_request, replica_id
                     )
-                    if isinstance(ref, ray.ObjectRef):
+                    if inspect.isawaitable(ref):
                         ref._on_completed(callback)
                     else:
                         ref.completed()._on_completed(callback)

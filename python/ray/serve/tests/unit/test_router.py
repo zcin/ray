@@ -2,7 +2,7 @@ import asyncio
 import random
 import sys
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 from unittest.mock import Mock, patch
 
 import pytest
@@ -42,10 +42,16 @@ class FakeObjectRef(FakeObjectRefOrGen):
     def __await__(self):
         raise NotImplementedError
 
+    def _on_completed(self, callback: Callable):
+        pass
+
 
 class FakeObjectRefGen(FakeObjectRefOrGen):
     def __anext__(self):
         raise NotImplementedError
+
+    def completed(self):
+        return FakeObjectRef(self._replica_id)
 
 
 class FakeReplica(ReplicaWrapper):
