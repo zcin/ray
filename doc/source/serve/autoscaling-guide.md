@@ -64,12 +64,8 @@ applications:
     import_path: resnet:app
     deployments:
     - name: Model
+      num_replicas: "auto"
       max_ongoing_requests: 5
-      autoscaling_config:
-        target_ongoing_requests: 1
-        min_replicas: 0
-        initial_replicas: 0
-        max_replicas: 200
 ```
 
 :::
