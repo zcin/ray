@@ -26,15 +26,6 @@ class SpreadDeploymentSchedulingPolicy:
 
 @total_ordering
 class Resources(dict):
-    @classmethod
-    def from_ray_resource_dict(cls, ray_resource_dict: Dict):
-        num_cpus = ray_resource_dict.get("CPU", 0)
-        num_gpus = ray_resource_dict.get("GPU", 0)
-        memory = ray_resource_dict.get("memory", 0)
-        custom_resources = ray_resource_dict.get("resources", dict())
-
-        return cls(CPU=num_cpus, GPU=num_gpus, memory=memory, **custom_resources)
-
     def get(self, key: str):
         val = super().get(key)
         if val is not None:
