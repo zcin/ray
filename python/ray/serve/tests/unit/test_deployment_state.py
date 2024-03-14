@@ -3289,6 +3289,10 @@ def test_get_active_node_ids_none(mock_deployment_state_manager):
     assert None not in dsm.get_active_node_ids()
 
 
+def test_handle_metrics(mock_deployment_state_manager):
+    create_dsm, timer, cluster_node_info_cache = mock_deployment_state_manager
+
+
 class TestTargetCapacity:
     """
     Tests related to the `target_capacity` field that adjusts the target num_replicas.

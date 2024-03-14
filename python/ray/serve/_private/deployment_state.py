@@ -1608,6 +1608,14 @@ class DeploymentState:
             RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE
             or len(running_replicas) == 0
         ):
+            # Remove metrics for handles that haven't sent updates in a while
+            # self.handle_requests = {
+            #     handle_id: handle_metric
+            #     for handle_id, handle_metric in self.handle_requests.items()
+            #     if time.time() - handle_metric.timestamp
+            #     <= 3 * self.autoscaling_policy_manager.get_metrics_interval_s()
+            # }
+
             for handle_metric in self.handle_requests.values():
                 total_requests += handle_metric.queued_requests
                 for replica in running_replicas:
