@@ -310,9 +310,7 @@ class DeploymentScheduler(ABC):
         assert deployment_id in self._deployments
 
         info = self._deployments[deployment_id]
-        info.actor_resources = Resources.from_ray_resource_dict(
-            replica_config.resource_dict
-        )
+        info.actor_resources = Resources(replica_config.resource_dict)
         info.max_replicas_per_node = replica_config.max_replicas_per_node
         if replica_config.placement_group_bundles:
             info.placement_group_bundles = [

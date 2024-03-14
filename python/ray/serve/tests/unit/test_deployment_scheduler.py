@@ -227,7 +227,9 @@ def test_get_available_resources_per_node():
     d_id = DeploymentID("a", "b")
 
     cluster_node_info_cache = MockClusterNodeInfoCache()
-    cluster_node_info_cache.add_node("node1", {"GPU": 10, "CPU": 32, "memory": 1024})
+    cluster_node_info_cache.add_node(
+        "node1", {"GPU": 10, "CPU": 32, "memory": 1024, "customx": 1}
+    )
 
     scheduler = default_impl.create_deployment_scheduler(
         cluster_node_info_cache,
@@ -239,7 +241,11 @@ def test_get_available_resources_per_node():
         d_id,
         ReplicaConfig.create(
             dummy,
-            ray_actor_options={"num_gpus": 1, "num_cpus": 3},
+            ray_actor_options={
+                "num_gpus": 1,
+                "num_cpus": 3,
+                "resources": {"customx": 0.1},
+            },
             max_replicas_per_node=4,
         ),
     )
@@ -255,6 +261,7 @@ def test_get_available_resources_per_node():
             "GPU": 9,
             "CPU": 29,
             "memory": 1024,
+            "customx": 0.9,
             f"{ray._raylet.IMPLICIT_RESOURCE_PREFIX}b:a": 0.75,
         }
     )
@@ -269,22 +276,24 @@ def test_get_available_resources_per_node():
             "GPU": 8,
             "CPU": 26,
             "memory": 1024,
+            "customx": 0.8,
             f"{ray._raylet.IMPLICIT_RESOURCE_PREFIX}b:a": 0.5,
         }
     )
 
-    # Get updated info from GCS that available memory has dropped,
+    # Get updated info from GCS that available MEMORY has dropped,
     # the decreased memory should reflect in current available resources
-    # per node, while also keeping track of the CPU and GPU resources
+    # per node, while also keeping track of the CPU, GPU, custom resources
     # used by launching and running replicas
     cluster_node_info_cache.set_available_resources_per_node(
-        "node1", {"GPU": 10, "CPU": 32, "memory": 256}
+        "node1", {"GPU": 10, "CPU": 32, "memory": 256, "customx": 1}
     )
     assert scheduler._get_available_resources_per_node().get("node1") == Resources(
         **{
             "GPU": 8,
             "CPU": 26,
             "memory": 256,
+            "customx": 0.8,
             f"{ray._raylet.IMPLICIT_RESOURCE_PREFIX}b:a": 0.5,
         }
     )
@@ -828,6 +837,50 @@ class TestCompactScheduling:
         )
         assert state["node1"] == 4
         assert state["node2"] == 1
+
+    def test_custom_resources(self):
+        d_id = DeploymentID(name="deployment1")
+        cluster_node_info_cache = MockClusterNodeInfoCache()
+        cluster_node_info_cache.add_node("node1", {"CPU": 3})
+        cluster_node_info_cache.add_node("node2", {"CPU": 100, "customA": 1})
+
+        scheduler = default_impl.create_deployment_scheduler(
+            cluster_node_info_cache,
+            head_node_id_override="fake-head-node-id",
+            create_placement_group_fn_override=lambda *args, **kwargs: MockPlacementGroup(  # noqa
+                *args, **kwargs
+            ),
+        )
+        scheduler.on_deployment_created(d_id, SpreadDeploymentSchedulingPolicy())
+        scheduler.on_deployment_deployed(
+            d_id,
+            ReplicaConfig.create(
+                dummy, ray_actor_options={"num_cpus": 2, "resources": {"customA": 0.1}}
+            ),
+        )
+
+        # Despite trying to schedule on node that minimizes fragmentation,
+        # should respect custom resources and schedule onto node2
+        def on_scheduled(actor_handle, placement_group):
+            scheduling_strategy = actor_handle._options["scheduling_strategy"]
+            assert isinstance(scheduling_strategy, NodeAffinitySchedulingStrategy)
+            assert scheduling_strategy.node_id == "node2"
+
+        scheduler.schedule(
+            upscales={
+                d_id: [
+                    ReplicaSchedulingRequest(
+                        replica_id=ReplicaID(unique_id="r0", deployment_id=d_id),
+                        actor_def=MockActorClass(),
+                        actor_resources={"CPU": 2, "customA": 0.1},
+                        actor_options={"name": "random"},
+                        actor_init_args=(),
+                        on_scheduled=on_scheduled,
+                    )
+                ]
+            },
+            downscales={},
+        )
 
 
 if __name__ == "__main__":
