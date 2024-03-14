@@ -102,6 +102,14 @@ def test_assert_no_replicas_deprovisioned():
         assert_no_replicas_deprovisioned(replica_ids_2, replica_ids_1)
 
 
+def checkk(handle):
+    num_requests = handle._router._metrics_manager.num_requests_sent_to_replicas
+    for replica_id, num in num_requests.items():
+        assert num == 0, f"Replica {replica_id} still has {num} ongoing requests"
+
+    return True
+
+
 @pytest.mark.parametrize(
     "use_target_ongoing_requests,use_target_num_ongoing_requests_per_replica",
     [(True, True), (True, False), (False, True)],
@@ -224,6 +232,7 @@ def test_e2e_scale_up_down_basic(min_replicas, serve_instance):
 
     # Make sure start time did not change for the deployment
     assert get_deployment_start_time(serve_instance._controller, "A") == start_time
+    wait_for_condition(checkk, handle=handle)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
@@ -293,6 +302,7 @@ def test_e2e_scale_up_down_with_0_replica(
 
     # Make sure start time did not change for the deployment
     assert get_deployment_start_time(controller, "A") == start_time
+    wait_for_condition(checkk, handle=handle)
 
 
 @mock.patch.object(ServeController, "run_control_loop")
@@ -353,6 +363,7 @@ def test_cold_start_time(serve_instance):
         cold_start_time,
     )
     assert result == "hello"
+    wait_for_condition(checkk, handle=handle)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
@@ -418,6 +429,7 @@ def test_e2e_bursty(serve_instance):
 
     # Make sure start time did not change for the deployment
     assert get_deployment_start_time(controller, "A") == start_time
+    wait_for_condition(checkk, handle=handle)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
@@ -471,6 +483,7 @@ def test_e2e_intermediate_downscaling(serve_instance):
 
     # Make sure start time did not change for the deployment
     assert get_deployment_start_time(controller, "A") == start_time
+    wait_for_condition(checkk, handle=handle)
 
 
 @pytest.mark.parametrize("initial_replicas", [2, 3])
@@ -535,6 +548,7 @@ def test_downscaling_with_fractional_scaling_factor(
     # Release signal so we don't get an ugly error message from the
     # replica when the signal actor goes out of scope and gets killed
     ray.get(signal.send.remote())
+    wait_for_condition(checkk, handle=h)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
@@ -625,6 +639,7 @@ def test_e2e_update_autoscaling_deployment(serve_instance):
     wait_for_condition(check_num_replicas_gte, name="A", target=0)
     signal.send.remote()
     wait_for_condition(check_num_replicas_eq, name="A", target=0)
+    wait_for_condition(checkk, handle=handle)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
@@ -701,6 +716,7 @@ def test_e2e_raise_min_replicas(serve_instance):
 
     # Make sure start time did not change for the deployment
     assert get_deployment_start_time(controller, "A") == start_time
+    wait_for_condition(checkk, handle=handle)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
