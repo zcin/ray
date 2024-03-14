@@ -133,6 +133,11 @@ class RouterMetricsManager:
                 },
             )
 
+            replica_id_set_strs = {
+                r.unique_id for r in self.num_requests_sent_to_replicas
+            }
+            logger.info(f"Still tracking replicas {replica_id_set_strs}.")
+
     @property
     def curr_autoscaling_config(self) -> Optional[AutoscalingConfig]:
         if self.deployment_config is None:
@@ -198,9 +203,15 @@ class RouterMetricsManager:
         with self._queries_lock:
             self.num_requests_sent_to_replicas[replica_id] += 1
 
-    def process_finished_request(self, replica_id: ReplicaID, *args):
+    def process_finished_request(self, replica_id: ReplicaID, request_id: str, *args):
         with self._queries_lock:
+            logger.info(
+                f"Replica {replica_id.unique_id} finished request {request_id}."
+            )
             self.num_requests_sent_to_replicas[replica_id] -= 1
+            logger.info(
+                f"Replica {replica_id.unique_id} now has {self.num_requests_sent_to_replicas[replica_id]} ongoing requests."
+            )
 
     def should_send_scaled_to_zero_optimized_push(self, curr_num_replicas: int) -> bool:
         return (
@@ -475,11 +486,16 @@ class Router:
 
                 # Keep track of requests that have been sent out to replicas
                 if RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE:
+                    logger.info(
+                        f"Sent request {request_meta.request_id} to {replica_id.unique_id}."
+                    )
                     self._metrics_manager.inc_num_running_requests_for_replica(
                         replica_id
                     )
                     callback = partial(
-                        self._metrics_manager.process_finished_request, replica_id
+                        self._metrics_manager.process_finished_request,
+                        replica_id,
+                        request_meta.request_id,
                     )
                     if isinstance(ref, (ray.ObjectRef, FakeObjectRef)):
                         ref._on_completed(callback)
