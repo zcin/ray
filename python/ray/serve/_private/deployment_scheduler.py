@@ -314,8 +314,7 @@ class DeploymentScheduler(ABC):
         info.max_replicas_per_node = replica_config.max_replicas_per_node
         if replica_config.placement_group_bundles:
             info.placement_group_bundles = [
-                Resources.from_ray_resource_dict(bundle)
-                for bundle in replica_config.placement_group_bundles
+                Resources(bundle) for bundle in replica_config.placement_group_bundles
             ]
         if replica_config.placement_group_strategy:
             info.placement_group_strategy = replica_config.placement_group_strategy

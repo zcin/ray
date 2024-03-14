@@ -299,6 +299,76 @@ def test_get_available_resources_per_node():
     )
 
 
+def test_get_available_resources_per_node_pg():
+    d_id = DeploymentID("a", "b")
+
+    cluster_node_info_cache = MockClusterNodeInfoCache()
+    cluster_node_info_cache.add_node(
+        "node1", {"GPU": 10, "CPU": 32, "memory": 1024, "customx": 1}
+    )
+
+    scheduler = default_impl.create_deployment_scheduler(
+        cluster_node_info_cache,
+        head_node_id_override="fake-head-node-id",
+        create_placement_group_fn_override=None,
+    )
+    scheduler.on_deployment_created(d_id, SpreadDeploymentSchedulingPolicy())
+    scheduler.on_deployment_deployed(
+        d_id,
+        ReplicaConfig.create(
+            dummy,
+            ray_actor_options={"num_cpus": 0},
+            placement_group_bundles=[{"GPU": 1}, {"CPU": 3}, {"customx": 0.1}],
+            placement_group_strategy="STRICT_PACK",
+        ),
+    )
+
+    # Without updating cluster node info cache, when a replica is marked
+    # as launching, the resources it uses should decrease the scheduler's
+    # view of current available resources per node in the cluster
+    scheduler._on_replica_launching(
+        ReplicaID(unique_id="replica0", deployment_id=d_id), target_node_id="node1"
+    )
+    assert scheduler._get_available_resources_per_node().get("node1") == Resources(
+        **{
+            "GPU": 9,
+            "CPU": 29,
+            "memory": 1024,
+            "customx": 0.9,
+        }
+    )
+
+    # Similarly when a replica is marked as running, the resources it
+    # uses should decrease current available resources per node
+    scheduler.on_replica_running(
+        ReplicaID(unique_id="replica1", deployment_id=d_id), node_id="node1"
+    )
+    assert scheduler._get_available_resources_per_node().get("node1") == Resources(
+        **{
+            "GPU": 8,
+            "CPU": 26,
+            "memory": 1024,
+            "customx": 0.8,
+        }
+    )
+
+    # Get updated info from GCS that available MEMORY has dropped,
+    # the decreased memory should reflect in current available resources
+    # per node, while also keeping track of the CPU, GPU, custom resources
+    # used by launching and running replicas
+    cluster_node_info_cache.set_available_resources_per_node(
+        "node1", {"GPU": 10, "CPU": 32, "memory": 256, "customx": 1}
+    )
+    assert scheduler._get_available_resources_per_node().get("node1") == Resources(
+        **{
+            "GPU": 8,
+            "CPU": 26,
+            "memory": 256,
+            "customx": 0.8,
+        }
+    )
+
+
 def test_downscale_multiple_deployments():
     """Test to make sure downscale prefers replicas without node id
     and then replicas on a node with fewest replicas of all deployments.
