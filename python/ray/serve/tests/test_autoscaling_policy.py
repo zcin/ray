@@ -471,6 +471,7 @@ def test_e2e_intermediate_downscaling(serve_instance):
 
     # Make sure start time did not change for the deployment
     assert get_deployment_start_time(controller, "A") == start_time
+    print(handle._router._metrics_manager.num_requests_sent_to_replicas)
 
 
 @pytest.mark.parametrize("initial_replicas", [2, 3])
