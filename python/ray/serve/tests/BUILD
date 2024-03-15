@@ -185,7 +185,6 @@ py_test_module_list(
   name_suffix="_with_queue_len_cache_disabled",
   env={"RAY_SERVE_ENABLE_QUEUE_LENGTH_CACHE": "0"},
   files = [
-    "test_autoscaling_policy.py",
     "test_cancellation.py",
     "test_handle.py",
     "test_handle_api.py",
