@@ -557,7 +557,9 @@ class DeploymentScheduler(ABC):
         ).remote(*scheduling_request.actor_init_args)
 
         del self._pending_replicas[deployment_id][replica_id]
-        self._on_replica_launching(replica_id, target_node_id=target_node_id)
+        self._on_replica_launching(
+            replica_id, target_node_id=target_node_id, target_labels=target_labels
+        )
 
         if isinstance(scheduling_strategy, PlacementGroupSchedulingStrategy):
             placement_group = scheduling_strategy.placement_group
