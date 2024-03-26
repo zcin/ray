@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import boto3
 import logging
 import os
 import random
@@ -10,7 +11,9 @@ from collections import defaultdict
 
 from serve_test_cluster_utils import NUM_CPU_PER_NODE
 from subprocess import PIPE
-from typing import Dict, List, Union
+from anyscale.authenticate import AuthenticationBlock
+from anyscale import AnyscaleSDK
+from typing import Dict, List, Union, Optional
 
 logger = logging.getLogger(__file__)
 
@@ -339,3 +342,52 @@ def save_test_results(final_result, default_output_file="/tmp/release_test_out.j
     test_output_json = os.environ.get("TEST_OUTPUT_JSON", default_output_file)
     with open(test_output_json, "wt") as f:
         json.dump(final_result, f)
+
+
+class DeferredEnvVar:
+    def __init__(self, var: str, default: Optional[str] = None):
+        self._var = var
+        self._default = default
+
+    def __str__(self):
+        return os.environ.get(self._var, self._default)
+
+
+RELEASE_AWS_ANYSCALE_SECRET_ARN = DeferredEnvVar(
+    "RELEASE_AWS_ANYSCALE_SECRET_ARN",
+    "arn:aws:secretsmanager:us-west-2:029272617770:secret:"
+    "release-automation/"
+    "anyscale-token20210505220406333800000001-BcUuKB",
+)
+
+
+def get_anyscale_cli_token() -> str:
+    try:
+        token, _ = AuthenticationBlock._load_credentials()
+        logger.info("Loaded anyscale credentials from local storage.")
+        return token
+    except Exception:
+        pass  # Ignore errors
+
+    logger.info("Missing ANYSCALE_CLI_TOKEN, retrieving from AWS secrets store")
+    return boto3.client("secretsmanager", region_name="us-west-2").get_secret_value(
+        SecretId=str(RELEASE_AWS_ANYSCALE_SECRET_ARN)
+    )["SecretString"]
+
+
+def get_current_build_id(sdk: AnyscaleSDK) -> str:
+    cluster_id = os.environ["ANYSCALE_CLUSTER_ID"]
+    cluster = sdk.get_cluster(cluster_id)
+    return cluster.result.cluster_environment_build_id
+
+
+def build_id_to_image_uri(sdk: AnyscaleSDK, build_id: str) -> str:
+    build = sdk.get_cluster_environment_build(build_id).result
+    cluster_env = sdk.get_cluster_environment(build.cluster_environment_id).result
+    return f"anyscale/cluster_env/{cluster_env.name}:{build.revision}"
+
+
+def check_service_state(sdk: AnyscaleSDK, expected_state: str):
+    state = sdk.get_service("service2_bthdfjvf8jnxcesija1tnuhpdc").result.current_state
+    assert str(state) == expected_state
+    return True
