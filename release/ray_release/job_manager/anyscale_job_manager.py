@@ -55,6 +55,10 @@ class AnyscaleJobManager:
         upload_path: Optional[str] = None,
         pip: Optional[List[str]] = None,
     ) -> None:
+        env_vars[
+            "ANYSCALE_JOB_CLUSTER_ENV_NAME"
+        ] = self.cluster_manager.cluster_env_name
+
         env = os.environ.copy()
         env.setdefault("ANYSCALE_HOST", str(ANYSCALE_HOST))
 
