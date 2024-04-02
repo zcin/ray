@@ -1070,142 +1070,244 @@ def test_multiplexed_metrics(serve_start_shutdown):
     )
 
 
-def test_queued_queries_disconnected(serve_start_shutdown):
-    """Check that disconnected queued queries are tracked correctly."""
-
-    signal = SignalActor.remote()
-
-    @serve.deployment(
-        max_ongoing_requests=1,
-    )
-    async def hang_on_first_request():
+@serve.deployment
+class WaitForSignal:
+    async def __call__(self):
+        signal = ray.get_actor("signal123")
         await signal.wait.remote()
 
-    serve.run(hang_on_first_request.bind())
 
-    print("Deployed hang_on_first_request deployment.")
+class TestHandleMetrics:
+    def test_queued_queries_basic(self, serve_start_shutdown):
+        signal = SignalActor.options(name="signal123").remote()
+        handle = serve.run(
+            WaitForSignal.options(max_ongoing_requests=1).bind(), name="app1"
+        )
 
-    wait_for_condition(
-        check_metric_float_eq,
-        timeout=15,
-        metric="ray_serve_num_scheduling_tasks",
-        expected=-1,  # -1 means not expected to be present yet.
-        # TODO(zcin): this tag shouldn't be necessary, there shouldn't be a mix of
-        # metrics from new and old sessions.
-        expected_tags={
-            "SessionName": ray._private.worker.global_worker.node.session_name
-        },
-    )
-    print("ray_serve_num_scheduling_tasks updated successfully.")
-    wait_for_condition(
-        check_metric_float_eq,
-        timeout=15,
-        metric="serve_num_scheduling_tasks_in_backoff",
-        expected=-1,  # -1 means not expected to be present yet.
-        # TODO(zcin): this tag shouldn't be necessary, there shouldn't be a mix of
-        # metrics from new and old sessions.
-        expected_tags={
-            "SessionName": ray._private.worker.global_worker.node.session_name
-        },
-    )
-    print("serve_num_scheduling_tasks_in_backoff updated successfully.")
+        for i in range(5):
+            handle.remote()
+            wait_for_condition(
+                check_sum_metric_eq,
+                metric="serve_deployment_queued_queries",
+                expected_tags={"application": "app1", "deployment": "WaitForSignal"},
+                expected=i,
+            )
 
-    @ray.remote(num_cpus=0)
-    def do_request():
-        r = requests.get("http://localhost:8000/")
-        r.raise_for_status()
-        return r
+        # Release signal
+        ray.get(signal.send.remote())
+        wait_for_condition(
+            check_sum_metric_eq,
+            metric="serve_deployment_queued_queries",
+            expected_tags={"application": "app1", "deployment": "WaitForSignal"},
+            expected=0,
+        )
 
-    # Make a request to block the deployment from accepting other requests.
-    request_refs = [do_request.remote()]
-    wait_for_condition(
-        lambda: ray.get(signal.cur_num_waiters.remote()) == 1, timeout=10
-    )
+    def test_queued_queries_multiple_handles(self, serve_start_shutdown):
+        signal = SignalActor.options(name="signal123").remote()
+        serve.run(WaitForSignal.options(max_ongoing_requests=1).bind(), name="app1")
 
-    print("First request is executing.")
-    wait_for_condition(
-        check_metric_float_eq,
-        timeout=15,
-        metric="ray_serve_num_ongoing_http_requests",
-        expected=1,
-    )
-    print("ray_serve_num_ongoing_http_requests updated successfully.")
+        h1 = DeploymentHandle("WaitForSignal", "app1")
+        h2 = DeploymentHandle("WaitForSignal", "app1")
+        h3 = DeploymentHandle("WaitForSignal", "app1")
 
-    num_queued_requests = 3
-    request_refs.extend([do_request.remote() for _ in range(num_queued_requests)])
-    print(f"{num_queued_requests} more requests now queued.")
+        # Send first request
+        h1.remote()
+        wait_for_condition(
+            check_sum_metric_eq,
+            metric="serve_deployment_queued_queries",
+            expected_tags={"application": "app1", "deployment": "WaitForSignal"},
+            expected=0,
+        )
 
-    # First request should be processing. All others should be queued.
-    wait_for_condition(
-        check_metric_float_eq,
-        timeout=15,
-        metric="ray_serve_deployment_queued_queries",
-        expected=num_queued_requests,
-    )
-    print("ray_serve_deployment_queued_queries updated successfully.")
-    wait_for_condition(
-        check_metric_float_eq,
-        timeout=15,
-        metric="ray_serve_num_ongoing_http_requests",
-        expected=num_queued_requests + 1,
-    )
-    print("ray_serve_num_ongoing_http_requests updated successfully.")
+        # Send second request (which should stay queued)
+        h2.remote()
+        wait_for_condition(
+            check_sum_metric_eq,
+            metric="serve_deployment_queued_queries",
+            expected_tags={"application": "app1", "deployment": "WaitForSignal"},
+            expected=1,
+        )
 
-    # There should be 2 scheduling tasks (which is the max, since
-    # 2 = 2 * 1 replica) that are attempting to schedule the hanging requests.
-    wait_for_condition(
-        check_metric_float_eq,
-        timeout=15,
-        metric="ray_serve_num_scheduling_tasks",
-        expected=2,
-    )
-    print("ray_serve_num_scheduling_tasks updated successfully.")
-    wait_for_condition(
-        check_metric_float_eq,
-        timeout=15,
-        metric="serve_num_scheduling_tasks_in_backoff",
-        expected=2,
-    )
-    print("serve_num_scheduling_tasks_in_backoff updated successfully.")
+        # Send third request (which should stay queued)
+        h3.remote()
+        wait_for_condition(
+            check_sum_metric_eq,
+            metric="serve_deployment_queued_queries",
+            expected_tags={"application": "app1", "deployment": "WaitForSignal"},
+            expected=2,
+        )
 
-    # Disconnect all requests by cancelling the Ray tasks.
-    [ray.cancel(ref, force=True) for ref in request_refs]
-    print("Cancelled all HTTP requests.")
+        # Release signal
+        ray.get(signal.send.remote())
+        wait_for_condition(
+            check_sum_metric_eq,
+            metric="serve_deployment_queued_queries",
+            expected_tags={"application": "app1", "deployment": "WaitForSignal"},
+            expected=0,
+        )
 
-    wait_for_condition(
-        check_metric_float_eq,
-        timeout=15,
-        metric="ray_serve_deployment_queued_queries",
-        expected=0,
-    )
-    print("ray_serve_deployment_queued_queries updated successfully.")
+    def test_queued_queries_disconnected(self, serve_start_shutdown):
+        """Check that disconnected queued queries are tracked correctly."""
 
-    # Task should get cancelled.
-    wait_for_condition(
-        check_metric_float_eq,
-        timeout=15,
-        metric="ray_serve_num_ongoing_http_requests",
-        expected=0,
-    )
-    print("ray_serve_num_ongoing_http_requests updated successfully.")
+        signal = SignalActor.remote()
 
-    wait_for_condition(
-        check_metric_float_eq,
-        timeout=15,
-        metric="ray_serve_num_scheduling_tasks",
-        expected=0,
-    )
-    print("ray_serve_num_scheduling_tasks updated successfully.")
-    wait_for_condition(
-        check_metric_float_eq,
-        timeout=15,
-        metric="serve_num_scheduling_tasks_in_backoff",
-        expected=0,
-    )
-    print("serve_num_scheduling_tasks_in_backoff updated successfully.")
+        @serve.deployment(
+            max_ongoing_requests=1,
+        )
+        async def hang_on_first_request():
+            await signal.wait.remote()
 
-    # Unblock hanging request.
-    ray.get(signal.send.remote())
+        serve.run(hang_on_first_request.bind())
+
+        print("Deployed hang_on_first_request deployment.")
+
+        wait_for_condition(
+            check_metric_float_eq,
+            timeout=15,
+            metric="ray_serve_num_scheduling_tasks",
+            expected=-1,  # -1 means not expected to be present yet.
+            # TODO(zcin): this tag shouldn't be necessary, there shouldn't be a mix of
+            # metrics from new and old sessions.
+            expected_tags={
+                "SessionName": ray._private.worker.global_worker.node.session_name
+            },
+        )
+        print("ray_serve_num_scheduling_tasks updated successfully.")
+        wait_for_condition(
+            check_metric_float_eq,
+            timeout=15,
+            metric="serve_num_scheduling_tasks_in_backoff",
+            expected=-1,  # -1 means not expected to be present yet.
+            # TODO(zcin): this tag shouldn't be necessary, there shouldn't be a mix of
+            # metrics from new and old sessions.
+            expected_tags={
+                "SessionName": ray._private.worker.global_worker.node.session_name
+            },
+        )
+        print("serve_num_scheduling_tasks_in_backoff updated successfully.")
+
+        @ray.remote(num_cpus=0)
+        def do_request():
+            r = requests.get("http://localhost:8000/")
+            r.raise_for_status()
+            return r
+
+        # Make a request to block the deployment from accepting other requests.
+        request_refs = [do_request.remote()]
+        wait_for_condition(
+            lambda: ray.get(signal.cur_num_waiters.remote()) == 1, timeout=10
+        )
+
+        print("First request is executing.")
+        wait_for_condition(
+            check_metric_float_eq,
+            timeout=15,
+            metric="ray_serve_num_ongoing_http_requests",
+            expected=1,
+        )
+        print("ray_serve_num_ongoing_http_requests updated successfully.")
+
+        num_queued_requests = 3
+        request_refs.extend([do_request.remote() for _ in range(num_queued_requests)])
+        print(f"{num_queued_requests} more requests now queued.")
+
+        # First request should be processing. All others should be queued.
+        wait_for_condition(
+            check_metric_float_eq,
+            timeout=15,
+            metric="ray_serve_deployment_queued_queries",
+            expected=num_queued_requests,
+        )
+        print("ray_serve_deployment_queued_queries updated successfully.")
+        wait_for_condition(
+            check_metric_float_eq,
+            timeout=15,
+            metric="ray_serve_num_ongoing_http_requests",
+            expected=num_queued_requests + 1,
+        )
+        print("ray_serve_num_ongoing_http_requests updated successfully.")
+
+        # There should be 2 scheduling tasks (which is the max, since
+        # 2 = 2 * 1 replica) that are attempting to schedule the hanging requests.
+        wait_for_condition(
+            check_metric_float_eq,
+            timeout=15,
+            metric="ray_serve_num_scheduling_tasks",
+            expected=2,
+        )
+        print("ray_serve_num_scheduling_tasks updated successfully.")
+        wait_for_condition(
+            check_metric_float_eq,
+            timeout=15,
+            metric="serve_num_scheduling_tasks_in_backoff",
+            expected=2,
+        )
+        print("serve_num_scheduling_tasks_in_backoff updated successfully.")
+
+        # Disconnect all requests by cancelling the Ray tasks.
+        [ray.cancel(ref, force=True) for ref in request_refs]
+        print("Cancelled all HTTP requests.")
+
+        wait_for_condition(
+            check_metric_float_eq,
+            timeout=15,
+            metric="ray_serve_deployment_queued_queries",
+            expected=0,
+        )
+        print("ray_serve_deployment_queued_queries updated successfully.")
+
+        # Task should get cancelled.
+        wait_for_condition(
+            check_metric_float_eq,
+            timeout=15,
+            metric="ray_serve_num_ongoing_http_requests",
+            expected=0,
+        )
+        print("ray_serve_num_ongoing_http_requests updated successfully.")
+
+        wait_for_condition(
+            check_metric_float_eq,
+            timeout=15,
+            metric="ray_serve_num_scheduling_tasks",
+            expected=0,
+        )
+        print("ray_serve_num_scheduling_tasks updated successfully.")
+        wait_for_condition(
+            check_metric_float_eq,
+            timeout=15,
+            metric="serve_num_scheduling_tasks_in_backoff",
+            expected=0,
+        )
+        print("serve_num_scheduling_tasks_in_backoff updated successfully.")
+
+        # Unblock hanging request.
+        ray.get(signal.send.remote())
+
+    def test_running_requests_gauge(self, serve_start_shutdown):
+        signal = SignalActor.options(name="signal123").remote()
+        handle = serve.run(
+            WaitForSignal.options(max_ongoing_requests=2, num_replicas=3).bind(),
+            name="app1",
+        )
+
+        # Send first request
+        for i in range(5):
+            handle.remote()
+            wait_for_condition(
+                check_sum_metric_eq,
+                metric="serve_num_requests_sent_to_replicas",
+                expected_tags={"application": "app1", "deployment": "WaitForSignal"},
+                expected=i + 1,
+            )
+
+        # Release signal, the number of running requests should drop to 0
+        ray.get(signal.send.remote())
+        wait_for_condition(
+            check_sum_metric_eq,
+            metric="serve_num_requests_sent_to_replicas",
+            expected_tags={"application": "app1", "deployment": "WaitForSignal"},
+            expected=0,
+        )
 
 
 def test_long_poll_host_sends_counted(serve_instance):
@@ -1324,6 +1426,36 @@ def check_metric_float_eq(
     return True
 
 
+def check_sum_metric_eq(
+    metric: str, expected: float, expected_tags: Optional[Dict[str, str]] = None
+) -> bool:
+    metrics = requests.get("http://127.0.0.1:9999").text
+    sum = 0
+    added_metrics = []
+    for line in metrics.split("\n"):
+        if metric in line and contains_tags(line, expected_tags):
+            try:
+                sum += float(line.split(" ")[-1])
+                added_metrics.append(line)
+            except ValueError:
+                continue
+
+    # Check the metrics sum to the expected number
+    assert (
+        sum == expected
+    ), f"The following metrics don't sum to {expected}: {added_metrics}"
+
+    # Check that the target metric actually shows up
+    if not added_metrics:
+        assert False, f"Metric {metric} not found. {metrics}"
+
+    # For debugging
+    print(f"The following metrics sum to {expected}:")
+    for m in added_metrics:
+        print(m)
+    return True
+
+
 def test_actor_summary(serve_instance):
     @serve.deployment
     def f():
@@ -1368,6 +1500,7 @@ def get_metric_dictionaries(name: str, timeout: float = 20) -> List[Dict]:
     wait_for_condition(metric_available, retry_interval_ms=1000, timeout=timeout)
 
     metrics = requests.get("http://127.0.0.1:9999").text
+    print("metrics", metrics)
 
     metric_dicts = []
     for line in metrics.split("\n"):
