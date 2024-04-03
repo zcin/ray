@@ -21,7 +21,6 @@ from ray_release.exception import (
 from ray_release.logger import logger
 from ray_release.signal_handling import register_handler, unregister_handler
 from ray_release.util import (
-    ANYSCALE_HOST,
     ERROR_LOG_PATTERNS,
     exponential_backoff_retry,
     anyscale_job_url,
