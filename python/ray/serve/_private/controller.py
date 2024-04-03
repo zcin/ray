@@ -260,6 +260,7 @@ class ServeController:
         self,
         deployment_id: str,
         handle_id: str,
+        actor_id: Optional[str],
         queued_requests: float,
         running_requests: Dict[str, float],
         send_timestamp: float,
@@ -269,7 +270,12 @@ class ServeController:
             f"{queued_requests} queued requests and {running_requests} running requests"
         )
         self.deployment_state_manager.record_handle_metrics(
-            deployment_id, handle_id, queued_requests, running_requests, send_timestamp
+            deployment_id,
+            handle_id,
+            actor_id,
+            queued_requests,
+            running_requests,
+            send_timestamp,
         )
 
     def _dump_autoscaling_metrics_for_testing(self):
