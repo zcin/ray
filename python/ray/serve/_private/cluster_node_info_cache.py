@@ -3,7 +3,8 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 
 import ray
 from ray._raylet import GcsClient
-from ray.serve._private.constants import RAY_GCS_RPC_TIMEOUT_S
+from ray.serve._private.constants import RAY_GCS_RPC_TIMEOUT_S, SERVE_NAMESPACE
+from ray.util.state import list_actors
 
 
 class ClusterNodeInfoCache(ABC):
@@ -15,6 +16,7 @@ class ClusterNodeInfoCache(ABC):
         self._cached_node_labels = dict()
         self._cached_total_resources_per_node = dict()
         self._cached_available_resources_per_node = dict()
+        self._cached_dead_actor_ids = set()
 
     def update(self):
         """Update the cache by fetching latest node information from GCS.
@@ -51,6 +53,18 @@ class ClusterNodeInfoCache(ABC):
         self._cached_available_resources_per_node = (
             ray._private.state.available_resources_per_node()
         )
+
+        # Dead actor IDs
+        self._cached_dead_actor_ids = {
+            actor["actor_id"]
+            for actor in list_actors(
+                filters=[
+                    ("state", "=", "DEAD"),
+                    ("ray_namespace", "=", SERVE_NAMESPACE),
+                ],
+                timeout=RAY_GCS_RPC_TIMEOUT_S,
+            )
+        }
 
     def get_alive_nodes(self) -> List[Tuple[str, str]]:
         """Get IDs and info for all live nodes in the cluster.
@@ -92,6 +106,9 @@ class ClusterNodeInfoCache(ABC):
         """
 
         return self._cached_available_resources_per_node
+
+    def get_dead_serve_actor_ids(self) -> Set[str]:
+        return self._cached_dead_actor_ids
 
 
 class DefaultClusterNodeInfoCache(ClusterNodeInfoCache):
