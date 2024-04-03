@@ -506,10 +506,11 @@ class TestRouterMetricsManager:
     def test_num_router_requests(self):
         metrics_manager = RouterMetricsManager(
             DeploymentID(name="a", app_name="b"),
-            "random",
+            "random_handle",
             Mock(),
-            FakeCounter(tag_keys=("deployment", "route", "application")),
-            FakeGauge(tag_keys=("deployment", "application")),
+            FakeCounter(tag_keys=("deployment", "route", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
         )
         assert metrics_manager.num_router_requests.get_count() == 0
 
@@ -521,15 +522,17 @@ class TestRouterMetricsManager:
             "deployment": "a",
             "application": "b",
             "route": "/alice",
+            "handle": "random_handle",
         }
 
     def test_num_queued_requests_gauge(self):
         metrics_manager = RouterMetricsManager(
             DeploymentID(name="a", app_name="b"),
-            "random",
+            "random_handle",
             Mock(),
-            FakeCounter(tag_keys=("deployment", "route", "application")),
-            FakeGauge(tag_keys=("deployment", "application")),
+            FakeCounter(tag_keys=("deployment", "route", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
         )
         assert metrics_manager.num_queued_requests_gauge.get_value() == 0
 
@@ -543,6 +546,7 @@ class TestRouterMetricsManager:
         assert metrics_manager.num_queued_requests_gauge.get_tags() == {
             "deployment": "a",
             "application": "b",
+            "handle": "random_handle",
         }
 
     def test_track_requests_sent_to_replicas(self):
@@ -550,8 +554,9 @@ class TestRouterMetricsManager:
             DeploymentID(name="a", app_name="b"),
             "random",
             Mock(),
-            FakeCounter(tag_keys=("deployment", "route", "application")),
-            FakeGauge(tag_keys=("deployment", "application")),
+            FakeCounter(tag_keys=("deployment", "route", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
         )
 
         # r1: number requests -> 0, removed from list of running replicas -> prune
@@ -602,8 +607,9 @@ class TestRouterMetricsManager:
             DeploymentID(name="a", app_name="b"),
             "random",
             Mock(),
-            FakeCounter(tag_keys=("deployment", "route", "application")),
-            FakeGauge(tag_keys=("deployment", "application")),
+            FakeCounter(tag_keys=("deployment", "route", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
         )
 
         # Not an autoscaling deployment, should not push metrics
@@ -638,8 +644,9 @@ class TestRouterMetricsManager:
                 deployment_id,
                 handle_id,
                 mock_controller_handle,
-                FakeCounter(tag_keys=("deployment", "route", "application")),
-                FakeGauge(tag_keys=("deployment", "application")),
+                FakeCounter(tag_keys=("deployment", "route", "application", "handle")),
+                FakeGauge(tag_keys=("deployment", "application", "handle")),
+                FakeGauge(tag_keys=("deployment", "application", "handle")),
             )
             metrics_manager.deployment_config = DeploymentConfig(
                 autoscaling_config=AutoscalingConfig()
@@ -647,7 +654,9 @@ class TestRouterMetricsManager:
 
             # Set up some requests
             n = random.randint(0, 5)
-            replica_ids = [get_random_string() for _ in range(3)]
+            replica_ids = [
+                ReplicaID(get_random_string(), DeploymentID("d", "a")) for _ in range(3)
+            ]
             running_requests = defaultdict(int)
             for _ in range(n):
                 metrics_manager.inc_num_queued_requests()
@@ -675,8 +684,9 @@ class TestRouterMetricsManager:
             DeploymentID(name="a", app_name="b"),
             "random",
             Mock(),
-            FakeCounter(tag_keys=("deployment", "route", "application")),
-            FakeGauge(tag_keys=("deployment", "application")),
+            FakeCounter(tag_keys=("deployment", "route", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
         )
 
         # Without autoscaling config, do nothing
