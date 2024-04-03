@@ -504,54 +504,56 @@ def running_replica_info(replica_id: ReplicaID) -> RunningReplicaInfo:
 
 class TestRouterMetricsManager:
     def test_num_router_requests(self):
-        metrics_manager = RouterMetricsManager(
-            DeploymentID(name="a", app_name="b"),
-            "random",
-            Mock(),
-            FakeCounter(tag_keys=("deployment", "route", "application")),
-            FakeGauge(tag_keys=("deployment", "application")),
-        )
-        assert metrics_manager.num_router_requests.get_count() == 0
-
-        n = random.randint(0, 10)
-        for _ in range(n):
-            metrics_manager.inc_num_total_requests(route="/alice")
-        assert metrics_manager.num_router_requests.get_count() == n
-        assert metrics_manager.num_router_requests.get_tags() == {
+        tags = {
             "deployment": "a",
             "application": "b",
             "route": "/alice",
+            "handle": "random_handle",
         }
-
-    def test_num_queued_requests_gauge(self):
         metrics_manager = RouterMetricsManager(
             DeploymentID(name="a", app_name="b"),
-            "random",
+            "random_handle",
             Mock(),
-            FakeCounter(tag_keys=("deployment", "route", "application")),
-            FakeGauge(tag_keys=("deployment", "application")),
+            FakeCounter(tag_keys=("deployment", "route", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle", "replica")),
         )
-        assert metrics_manager.num_queued_requests_gauge.get_value() == 0
+        assert metrics_manager.num_router_requests.get_count(tags) is None
+
+        n = random.randint(1, 10)
+        for _ in range(n):
+            metrics_manager.inc_num_total_requests(route="/alice")
+        assert metrics_manager.num_router_requests.get_count(tags) == n
+
+    def test_num_queued_requests_gauge(self):
+        tags = {"deployment": "a", "application": "b", "handle": "random_handle"}
+        metrics_manager = RouterMetricsManager(
+            DeploymentID(name="a", app_name="b"),
+            "random_handle",
+            Mock(),
+            FakeCounter(tag_keys=("deployment", "route", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle", "replica")),
+        )
+        assert metrics_manager.num_queued_requests_gauge.get_value(tags) == 0
 
         n, m = random.randint(0, 10), random.randint(0, 5)
         for _ in range(n):
             metrics_manager.inc_num_queued_requests()
-        assert metrics_manager.num_queued_requests_gauge.get_value() == n
+        assert metrics_manager.num_queued_requests_gauge.get_value(tags) == n
         for _ in range(m):
             metrics_manager.dec_num_queued_requests()
-        assert metrics_manager.num_queued_requests_gauge.get_value() == n - m
-        assert metrics_manager.num_queued_requests_gauge.get_tags() == {
-            "deployment": "a",
-            "application": "b",
-        }
+        assert metrics_manager.num_queued_requests_gauge.get_value(tags) == n - m
 
     def test_track_requests_sent_to_replicas(self):
+        d_id = DeploymentID(name="a", app_name="b")
         metrics_manager = RouterMetricsManager(
-            DeploymentID(name="a", app_name="b"),
+            d_id,
             "random",
             Mock(),
-            FakeCounter(tag_keys=("deployment", "route", "application")),
-            FakeGauge(tag_keys=("deployment", "application")),
+            FakeCounter(tag_keys=("deployment", "route", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle", "replica")),
         )
 
         # r1: number requests -> 0, removed from list of running replicas -> prune
@@ -559,9 +561,7 @@ class TestRouterMetricsManager:
         # r3: number requests > 0, removed from list of running replicas -> don't prune
         # r4: number requests > 0, remains on list of running replicas -> don't prune
         replica_ids = [
-            ReplicaID(
-                unique_id=f"test-replica-{i}", deployment_id=DeploymentID(name="test")
-            )
+            ReplicaID(unique_id=f"test-replica-{i}", deployment_id=d_id)
             for i in range(1, 5)
         ]
         r1, r2, r3, r4 = replica_ids
@@ -574,6 +574,17 @@ class TestRouterMetricsManager:
         # All 4 replicas should have a positive number of requests
         for i, r in enumerate(replica_ids):
             assert metrics_manager.num_requests_sent_to_replicas[r] == i + 1
+            assert (
+                metrics_manager.num_running_requests_gauge.get_value(
+                    {
+                        "deployment": "a",
+                        "application": "b",
+                        "handle": "random",
+                        "replica": r.unique_id,
+                    }
+                )
+                == i + 1
+            )
 
         # Requests at r1 and r2 drop to 0
         for _ in range(1):
@@ -582,6 +593,28 @@ class TestRouterMetricsManager:
             metrics_manager.process_finished_request(r2, None)
         assert metrics_manager.num_requests_sent_to_replicas[r1] == 0
         assert metrics_manager.num_requests_sent_to_replicas[r2] == 0
+        assert (
+            metrics_manager.num_running_requests_gauge.get_value(
+                {
+                    "deployment": "a",
+                    "application": "b",
+                    "handle": "random",
+                    "replica": r1.unique_id,
+                }
+            )
+            == 0
+        )
+        assert (
+            metrics_manager.num_running_requests_gauge.get_value(
+                {
+                    "deployment": "a",
+                    "application": "b",
+                    "handle": "random",
+                    "replica": r2.unique_id,
+                }
+            )
+            == 0
+        )
 
         # Running replicas reduces to [r2, r4]
         metrics_manager.update_running_replicas(
@@ -602,8 +635,9 @@ class TestRouterMetricsManager:
             DeploymentID(name="a", app_name="b"),
             "random",
             Mock(),
-            FakeCounter(tag_keys=("deployment", "route", "application")),
-            FakeGauge(tag_keys=("deployment", "application")),
+            FakeCounter(tag_keys=("deployment", "route", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
         )
 
         # Not an autoscaling deployment, should not push metrics
@@ -638,8 +672,9 @@ class TestRouterMetricsManager:
                 deployment_id,
                 handle_id,
                 mock_controller_handle,
-                FakeCounter(tag_keys=("deployment", "route", "application")),
-                FakeGauge(tag_keys=("deployment", "application")),
+                FakeCounter(tag_keys=("deployment", "route", "application", "handle")),
+                FakeGauge(tag_keys=("deployment", "application", "handle")),
+                FakeGauge(tag_keys=("deployment", "application", "handle", "replica")),
             )
             metrics_manager.deployment_config = DeploymentConfig(
                 autoscaling_config=AutoscalingConfig()
@@ -647,7 +682,9 @@ class TestRouterMetricsManager:
 
             # Set up some requests
             n = random.randint(0, 5)
-            replica_ids = [get_random_string() for _ in range(3)]
+            replica_ids = [
+                ReplicaID(get_random_string(), DeploymentID("d", "a")) for _ in range(3)
+            ]
             running_requests = defaultdict(int)
             for _ in range(n):
                 metrics_manager.inc_num_queued_requests()
@@ -675,8 +712,9 @@ class TestRouterMetricsManager:
             DeploymentID(name="a", app_name="b"),
             "random",
             Mock(),
-            FakeCounter(tag_keys=("deployment", "route", "application")),
-            FakeGauge(tag_keys=("deployment", "application")),
+            FakeCounter(tag_keys=("deployment", "route", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
+            FakeGauge(tag_keys=("deployment", "application", "handle")),
         )
 
         # Without autoscaling config, do nothing
