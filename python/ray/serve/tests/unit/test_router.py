@@ -507,6 +507,7 @@ class TestRouterMetricsManager:
         metrics_manager = RouterMetricsManager(
             DeploymentID(name="a", app_name="b"),
             "random",
+            None,
             Mock(),
             FakeCounter(tag_keys=("deployment", "route", "application")),
             FakeGauge(tag_keys=("deployment", "application")),
@@ -527,6 +528,7 @@ class TestRouterMetricsManager:
         metrics_manager = RouterMetricsManager(
             DeploymentID(name="a", app_name="b"),
             "random",
+            None,
             Mock(),
             FakeCounter(tag_keys=("deployment", "route", "application")),
             FakeGauge(tag_keys=("deployment", "application")),
@@ -549,6 +551,7 @@ class TestRouterMetricsManager:
         metrics_manager = RouterMetricsManager(
             DeploymentID(name="a", app_name="b"),
             "random",
+            None,
             Mock(),
             FakeCounter(tag_keys=("deployment", "route", "application")),
             FakeGauge(tag_keys=("deployment", "application")),
@@ -601,6 +604,7 @@ class TestRouterMetricsManager:
         metrics_manager = RouterMetricsManager(
             DeploymentID(name="a", app_name="b"),
             "random",
+            None,
             Mock(),
             FakeCounter(tag_keys=("deployment", "route", "application")),
             FakeGauge(tag_keys=("deployment", "application")),
@@ -631,12 +635,14 @@ class TestRouterMetricsManager:
         timer.reset(start)
         deployment_id = DeploymentID(name="a", app_name="b")
         handle_id = "random"
+        self_actor_id = "abc"
         mock_controller_handle = Mock()
 
         with patch("time.time", new=timer.time):
             metrics_manager = RouterMetricsManager(
                 deployment_id,
                 handle_id,
+                self_actor_id,
                 mock_controller_handle,
                 FakeCounter(tag_keys=("deployment", "route", "application")),
                 FakeGauge(tag_keys=("deployment", "application")),
@@ -661,6 +667,7 @@ class TestRouterMetricsManager:
             mock_controller_handle.record_handle_metrics.remote.assert_called_with(
                 deployment_id=deployment_id,
                 handle_id=handle_id,
+                actor_id=self_actor_id,
                 queued_requests=n,
                 running_requests=running_requests,
                 send_timestamp=start,
@@ -674,6 +681,7 @@ class TestRouterMetricsManager:
         metrics_manager = RouterMetricsManager(
             DeploymentID(name="a", app_name="b"),
             "random",
+            None,
             Mock(),
             FakeCounter(tag_keys=("deployment", "route", "application")),
             FakeGauge(tag_keys=("deployment", "application")),
