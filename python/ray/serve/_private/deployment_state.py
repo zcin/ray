@@ -193,9 +193,14 @@ _SCALING_LOG_ENABLED = os.environ.get("SERVE_ENABLE_SCALING_LOG", "0") != "0"
 
 @dataclass
 class HandleRequestMetric:
+    actor_id: str
     queued_requests: float
     running_requests: Dict[ReplicaID, float]
     timestamp: float
+
+    @property
+    def total_requests(self) -> float:
+        return self.queued_requests + sum(self.running_requests.values())
 
 
 def print_verbose_scaling_log():
@@ -934,6 +939,10 @@ class DeploymentReplica(VersionedReplica):
         return self._actor.version
 
     @property
+    def actor_id(self) -> str:
+        return self._actor.actor_id
+
+    @property
     def actor_handle(self) -> ActorHandle:
         return self._actor.actor_handle
 
@@ -1217,12 +1226,14 @@ class DeploymentState:
         deployment_scheduler: DeploymentScheduler,
         cluster_node_info_cache: ClusterNodeInfoCache,
         _save_checkpoint_func: Callable,
+        _callback_on_replica_death: Callable,
     ):
         self._id = id
         self._long_poll_host: LongPollHost = long_poll_host
         self._deployment_scheduler = deployment_scheduler
         self._cluster_node_info_cache = cluster_node_info_cache
         self._save_checkpoint_func = _save_checkpoint_func
+        self._callback_on_replica_death = _callback_on_replica_death
 
         # Each time we set a new deployment goal, we're trying to save new
         # DeploymentInfo and bring current deployment to meet new status.
@@ -1593,6 +1604,17 @@ class DeploymentState:
         self._backoff_time_s = 1
         return True
 
+    def drop_handle_metrics_on_actor(self, actor_id: str) -> None:
+        for handle_id, metric in list(self.handle_requests.items()):
+            if metric.actor_id == actor_id:
+                del self.handle_requests[handle_id]
+                if metric.total_requests > 0:
+                    logger.info(
+                        f"Dropping metrics for handle '{handle_id}' because the actor "
+                        f"it was on ({actor_id}) died. It had {metric.total_requests} "
+                        "ongoing requests."
+                    )
+
     def get_total_num_requests(self) -> float:
         """Get average total number of requests aggregated over the past
         `look_back_period_s` number of seconds.
@@ -1625,14 +1647,11 @@ class DeploymentState:
             for handle_id, handle_metric in list(self.handle_requests.items()):
                 if time.time() - handle_metric.timestamp >= timeout_s:
                     del self.handle_requests[handle_id]
-                    total_ongoing_requests = handle_metric.queued_requests + sum(
-                        handle_metric.running_requests.values()
-                    )
-                    if total_ongoing_requests > 0:
+                    if handle_metric.total_requests > 0:
                         logger.info(
                             f"Dropping stale metrics for handle '{handle_id}' "
                             f"because no update was received for {timeout_s:.1f}s. "
-                            f"Ongoing requests was: {total_ongoing_requests}."
+                            f"Ongoing requests was: {handle_metric.total_requests}."
                         )
 
             for handle_metric in self.handle_requests.values():
@@ -2245,6 +2264,8 @@ class DeploymentState:
                 if replica.replica_id in self.replica_average_ongoing_requests:
                     del self.replica_average_ongoing_requests[replica.replica_id]
 
+                self._callback_on_replica_death(replica)
+
     def _choose_pending_migration_replicas_to_stop(
         self,
         replicas: List[DeploymentReplica],
@@ -2359,6 +2380,7 @@ class DeploymentState:
     def record_request_metrics_for_handle(
         self,
         handle_id: str,
+        actor_id: Optional[str],
         queued_requests: float,
         running_requests: Dict[ReplicaID, float],
         send_timestamp: float,
@@ -2370,6 +2392,7 @@ class DeploymentState:
             or send_timestamp > self.handle_requests[handle_id].timestamp
         ):
             self.handle_requests[handle_id] = HandleRequestMetric(
+                actor_id=actor_id,
                 queued_requests=queued_requests,
                 running_requests=running_requests,
                 timestamp=send_timestamp,
@@ -2445,6 +2468,7 @@ class DeploymentStateManager:
             self._deployment_scheduler,
             self._cluster_node_info_cache,
             self._save_checkpoint_func,
+            lambda replica: self.drop_handle_metrics_on_actor(replica.actor_id),
         )
 
     def record_autoscaling_metrics(
@@ -2459,6 +2483,7 @@ class DeploymentStateManager:
         self,
         deployment_id: str,
         handle_id: str,
+        actor_id: Optional[str],
         queued_requests: float,
         running_requests: Dict[ReplicaID, float],
         send_timestamp: float,
@@ -2467,8 +2492,12 @@ class DeploymentStateManager:
         # sending metrics to the controller
         if deployment_id in self._deployment_states:
             self._deployment_states[deployment_id].record_request_metrics_for_handle(
-                handle_id, queued_requests, running_requests, send_timestamp
+                handle_id, actor_id, queued_requests, running_requests, send_timestamp
             )
+
+    def drop_handle_metrics_on_actor(self, actor_id: str) -> None:
+        for deployment_state in self._deployment_states.values():
+            deployment_state.drop_handle_metrics_on_actor(actor_id)
 
     def get_autoscaling_metrics(self):
         """Return autoscaling metrics (used for dumping from controller)"""
