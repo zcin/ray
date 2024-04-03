@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 
 import ray
 from ray._raylet import GcsClient
-from ray.serve._private.constants import RAY_GCS_RPC_TIMEOUT_S
+from ray.serve._private.constants import RAY_GCS_RPC_TIMEOUT_S, SERVE_NAMESPACE
 
 
 class ClusterNodeInfoCache(ABC):
