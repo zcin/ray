@@ -3,7 +3,7 @@ import json
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Set, Tuple, Type
+from typing import Callable, Dict, List, Optional, Set, Tuple, Type
 
 import ray
 from ray import ObjectRef
@@ -562,11 +562,15 @@ class ProxyStateManager:
         self._timer = timer
 
         self._cluster_node_info_cache = cluster_node_info_cache
+        self._callback_on_proxy_death = None
 
         assert isinstance(head_node_id, str)
 
-    def reconfiture_logging_config(self, logging_config: LoggingConfig):
+    def reconfigure_logging_config(self, logging_config: LoggingConfig):
         self.logging_config = logging_config
+
+    def set_callback_on_proxy_death(self, callback: Callable):
+        self._callback_on_proxy_death = callback
 
     def shutdown(self) -> None:
         for proxy_state in self._proxy_states.values():
@@ -755,6 +759,8 @@ class ProxyStateManager:
             proxy_state = self._proxy_states.pop(node_id)
             self._proxy_restart_counts[node_id] = proxy_state.proxy_restart_count + 1
             proxy_state.shutdown()
+            if self._callback_on_proxy_death:
+                self._callback_on_proxy_death(proxy_state.actor_details.actor_id)
 
 
 def _try_set_exception(fut: asyncio.Future, e: Exception):
