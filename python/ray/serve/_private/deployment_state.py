@@ -193,9 +193,14 @@ _SCALING_LOG_ENABLED = os.environ.get("SERVE_ENABLE_SCALING_LOG", "0") != "0"
 
 @dataclass
 class HandleRequestMetric:
+    actor_id: str
     queued_requests: float
     running_requests: Dict[ReplicaID, float]
     timestamp: float
+
+    @property
+    def total_requests(self) -> float:
+        return self.queued_requests + sum(self.running_requests.values())
 
 
 def print_verbose_scaling_log():
@@ -934,6 +939,10 @@ class DeploymentReplica(VersionedReplica):
         return self._actor.version
 
     @property
+    def actor_id(self) -> str:
+        return self._actor.actor_id
+
+    @property
     def actor_handle(self) -> ActorHandle:
         return self._actor.actor_handle
 
@@ -1263,6 +1272,7 @@ class DeploymentState:
 
         self._last_broadcasted_running_replica_infos: List[RunningReplicaInfo] = []
         self._last_broadcasted_deployment_config = None
+        self._alive_replica_actor_ids = set()
 
     @property
     def autoscaling_policy_manager(self) -> AutoscalingPolicyManager:
@@ -1354,6 +1364,18 @@ class DeploymentState:
     @property
     def app_name(self) -> str:
         return self._id.app_name
+
+    def get_alive_replica_actor_ids(self) -> Set[str]:
+        return {replica.actor_id for replica in self._replicas.get()}
+
+    def refresh_alive_replica_actor_ids(self) -> Set[str]:
+        """Updates self._alive_replica_actor_ids and returns replicas that have died."""
+
+        old_replica_actor_ids = self._alive_replica_actor_ids
+        new_replica_actor_ids = self.get_alive_replica_actor_ids()
+        self._alive_replica_actor_ids = new_replica_actor_ids
+
+        return old_replica_actor_ids - new_replica_actor_ids
 
     def get_running_replica_infos(self) -> List[RunningReplicaInfo]:
         return [
@@ -1593,6 +1615,17 @@ class DeploymentState:
         self._backoff_time_s = 1
         return True
 
+    def drop_handle_metrics_on_actor(self, actor_id: str) -> None:
+        for handle_id, metric in list(self.handle_requests.items()):
+            if metric.actor_id == actor_id:
+                del self.handle_requests[handle_id]
+                if metric.total_requests > 0:
+                    logger.info(
+                        f"Dropping metrics for handle '{handle_id}' because the actor "
+                        f"it was on ({actor_id}) died. It had {metric.total_requests} "
+                        "ongoing requests."
+                    )
+
     def get_total_num_requests(self) -> float:
         """Get average total number of requests aggregated over the past
         `look_back_period_s` number of seconds.
@@ -1625,14 +1658,11 @@ class DeploymentState:
             for handle_id, handle_metric in list(self.handle_requests.items()):
                 if time.time() - handle_metric.timestamp >= timeout_s:
                     del self.handle_requests[handle_id]
-                    total_ongoing_requests = handle_metric.queued_requests + sum(
-                        handle_metric.running_requests.values()
-                    )
-                    if total_ongoing_requests > 0:
+                    if handle_metric.total_requests > 0:
                         logger.info(
                             f"Dropping stale metrics for handle '{handle_id}' "
                             f"because no update was received for {timeout_s:.1f}s. "
-                            f"Ongoing requests was: {total_ongoing_requests}."
+                            f"Ongoing requests was: {handle_metric.total_requests}."
                         )
 
             for handle_metric in self.handle_requests.values():
@@ -2359,6 +2389,7 @@ class DeploymentState:
     def record_request_metrics_for_handle(
         self,
         handle_id: str,
+        actor_id: Optional[str],
         queued_requests: float,
         running_requests: Dict[ReplicaID, float],
         send_timestamp: float,
@@ -2370,6 +2401,7 @@ class DeploymentState:
             or send_timestamp > self.handle_requests[handle_id].timestamp
         ):
             self.handle_requests[handle_id] = HandleRequestMetric(
+                actor_id=actor_id,
                 queued_requests=queued_requests,
                 running_requests=running_requests,
                 timestamp=send_timestamp,
@@ -2459,6 +2491,7 @@ class DeploymentStateManager:
         self,
         deployment_id: str,
         handle_id: str,
+        actor_id: Optional[str],
         queued_requests: float,
         running_requests: Dict[ReplicaID, float],
         send_timestamp: float,
@@ -2467,8 +2500,12 @@ class DeploymentStateManager:
         # sending metrics to the controller
         if deployment_id in self._deployment_states:
             self._deployment_states[deployment_id].record_request_metrics_for_handle(
-                handle_id, queued_requests, running_requests, send_timestamp
+                handle_id, actor_id, queued_requests, running_requests, send_timestamp
             )
+
+    def drop_handle_metrics_on_actor(self, actor_id: str) -> None:
+        for deployment_state in self._deployment_states.values():
+            deployment_state.drop_handle_metrics_on_actor(actor_id)
 
     def get_autoscaling_metrics(self):
         """Return autoscaling metrics (used for dumping from controller)"""
@@ -2735,7 +2772,7 @@ class DeploymentStateManager:
         if id in self._deployment_states:
             self._deployment_states[id].delete()
 
-    def update(self) -> bool:
+    def update(self, dead_proxy_actor_ids: Set[str] = None) -> bool:
         """Updates the state of all deployments to match their goal state.
 
         Returns True if any of the deployments have replicas in the RECOVERING state.
@@ -2747,6 +2784,16 @@ class DeploymentStateManager:
         downscales: Dict[DeploymentID, DeploymentDownscaleRequest] = {}
 
         # STEP 1: Update current state
+        dead_serve_actor_ids = set.union(
+            *[
+                ds.refresh_alive_replica_actor_ids()
+                for ds in self._deployment_states.values()
+            ],
+            dead_proxy_actor_ids or set(),
+        )
+        for actor_id in dead_serve_actor_ids:
+            self.drop_handle_metrics_on_actor(actor_id)
+
         for deployment_state in self._deployment_states.values():
             if deployment_state.should_autoscale():
                 deployment_state.autoscale()
