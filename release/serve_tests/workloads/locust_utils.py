@@ -81,6 +81,10 @@ class LocustClient:
                             "x-request-id"
                         ]
 
+            @events.spawning_complete.add_listener
+            def on_spawning_complete(*args, **kwargs):
+                print("on spawning complete", args, kwargs)
+
             @events.request.add_listener
             def on_request(
                 response: FastResponse,
