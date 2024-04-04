@@ -153,11 +153,11 @@ class ServeController:
         self.cluster_node_info_cache.update()
 
         self.proxy_state_manager = ProxyStateManager(
-            http_config,
-            self._controller_node_id,
-            self.cluster_node_info_cache,
-            self.global_logging_config,
-            grpc_options,
+            config=http_config,
+            head_node_id=self._controller_node_id,
+            cluster_node_info_cache=self.cluster_node_info_cache,
+            logging_config=self.global_logging_config,
+            grpc_options=grpc_options,
         )
 
         self.endpoint_state = EndpointState(self.kv_store, self.long_poll_host)
@@ -260,6 +260,7 @@ class ServeController:
         self,
         deployment_id: str,
         handle_id: str,
+        actor_id: Optional[str],
         queued_requests: float,
         running_requests: Dict[str, float],
         send_timestamp: float,
@@ -269,7 +270,12 @@ class ServeController:
             f"{queued_requests} queued requests and {running_requests} running requests"
         )
         self.deployment_state_manager.record_handle_metrics(
-            deployment_id, handle_id, queued_requests, running_requests, send_timestamp
+            deployment_id,
+            handle_id,
+            actor_id,
+            queued_requests,
+            running_requests,
+            send_timestamp,
         )
 
     def _dump_autoscaling_metrics_for_testing(self):
@@ -364,6 +370,7 @@ class ServeController:
         while True:
             loop_start_time = time.time()
 
+            # Update cluster node info cache
             try:
                 self.cluster_node_info_cache.update()
             except Exception:
@@ -385,9 +392,35 @@ class ServeController:
                 )
                 self.done_recovering_event.set()
 
+            # Update proxy state manager
+            # Update the proxy nodes set before updating the proxy states,
+            # so they are more consistent.
+            node_update_start_time = time.time()
+            self._update_proxy_nodes()
+            self.node_update_duration_gauge_s.set(time.time() - node_update_start_time)
+
+            # Don't update proxy_state until after the done recovering event is set,
+            # otherwise we may start a new proxy but not broadcast it any
+            # info about available deployments & their replicas.
+            dead_proxy_actor_ids = None
+            if self.proxy_state_manager and self.done_recovering_event.is_set():
+                try:
+                    proxy_update_start_time = time.time()
+                    dead_proxy_actor_ids = self.proxy_state_manager.update(
+                        proxy_nodes=self._proxy_nodes
+                    )
+                    self.proxy_update_duration_gauge_s.set(
+                        time.time() - proxy_update_start_time
+                    )
+                except Exception:
+                    logger.exception("Exception updating proxy state.")
+
+            # Update deployment state manager
             try:
                 dsm_update_start_time = time.time()
-                any_recovering = self.deployment_state_manager.update()
+                any_recovering = self.deployment_state_manager.update(
+                    dead_proxy_actor_ids
+                )
                 self.dsm_update_duration_gauge_s.set(
                     time.time() - dsm_update_start_time
                 )
@@ -403,6 +436,7 @@ class ServeController:
             except Exception:
                 logger.exception("Exception updating deployment state.")
 
+            # Update application state manager
             try:
                 asm_update_start_time = time.time()
                 self.application_state_manager.update()
@@ -411,25 +445,6 @@ class ServeController:
                 )
             except Exception:
                 logger.exception("Exception updating application state.")
-
-            # Update the proxy nodes set before updating the proxy states,
-            # so they are more consistent.
-            node_update_start_time = time.time()
-            self._update_proxy_nodes()
-            self.node_update_duration_gauge_s.set(time.time() - node_update_start_time)
-
-            # Don't update proxy_state until after the done recovering event is set,
-            # otherwise we may start a new proxy but not broadcast it any
-            # info about available deployments & their replicas.
-            if self.proxy_state_manager and self.done_recovering_event.is_set():
-                try:
-                    proxy_update_start_time = time.time()
-                    self.proxy_state_manager.update(proxy_nodes=self._proxy_nodes)
-                    self.proxy_update_duration_gauge_s.set(
-                        time.time() - proxy_update_start_time
-                    )
-                except Exception:
-                    logger.exception("Exception updating proxy state.")
 
             loop_duration = time.time() - loop_start_time
             if loop_duration > 10:
