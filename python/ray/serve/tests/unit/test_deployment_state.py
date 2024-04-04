@@ -2005,6 +2005,7 @@ def test_basic_autoscaling(mock_deployment_state_manager, target_capacity_direct
         dsm.record_handle_metrics(
             deployment_id=TEST_DEPLOYMENT_ID,
             handle_id="random",
+            actor_id=None,
             queued_requests=0,
             running_requests={
                 replica._actor.replica_id: req_per_replica for replica in replicas
@@ -2138,6 +2139,7 @@ def test_downscaling_reclaiming_starting_replicas_first(
         dsm.record_handle_metrics(
             deployment_id=TEST_DEPLOYMENT_ID,
             handle_id="random",
+            actor_id=None,
             queued_requests=0,
             running_requests={replica._actor.replica_id: 2 for replica in replicas},
             send_timestamp=timer.time(),
@@ -2202,6 +2204,7 @@ def test_downscaling_reclaiming_starting_replicas_first(
         dsm.record_handle_metrics(
             deployment_id=TEST_DEPLOYMENT_ID,
             handle_id="random",
+            actor_id=None,
             queued_requests=0,
             running_requests={replica._actor.replica_id: 1 for replica in replicas},
             send_timestamp=timer.time(),
@@ -2285,6 +2288,7 @@ def test_update_autoscaling_config(mock_deployment_state_manager):
         dsm.record_handle_metrics(
             deployment_id=TEST_DEPLOYMENT_ID,
             handle_id="random",
+            actor_id=None,
             queued_requests=0,
             running_requests={replica._actor.replica_id: 1 for replica in replicas},
             send_timestamp=timer.time(),
@@ -2369,6 +2373,7 @@ def test_handle_metrics_timeout(mock_deployment_state_manager):
     dsm.record_handle_metrics(
         deployment_id=TEST_DEPLOYMENT_ID,
         handle_id="random",
+        actor_id=None,
         queued_requests=0,
         running_requests={ds._replicas.get()[0]._actor.replica_id: 2},
         send_timestamp=timer.time(),
