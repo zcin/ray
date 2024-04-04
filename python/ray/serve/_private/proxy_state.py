@@ -350,6 +350,10 @@ class ProxyState:
         return self._actor_name
 
     @property
+    def actor_id(self) -> str:
+        return self._actor_proxy_wrapper.actor_id
+
+    @property
     def status(self) -> ProxyStatus:
         return self._status
 
@@ -562,10 +566,11 @@ class ProxyStateManager:
         self._timer = timer
 
         self._cluster_node_info_cache = cluster_node_info_cache
+        self._alive_proxy_actor_ids = set()
 
         assert isinstance(head_node_id, str)
 
-    def reconfiture_logging_config(self, logging_config: LoggingConfig):
+    def reconfigure_logging_config(self, logging_config: LoggingConfig):
         self.logging_config = logging_config
 
     def shutdown(self) -> None:
@@ -605,12 +610,24 @@ class ProxyStateManager:
             for node_id, state in self._proxy_states.items()
         }
 
-    def update(self, proxy_nodes: Set[NodeId] = None):
+    def get_alive_proxy_actor_ids(self) -> Set[str]:
+        return {state.actor_id for state in self._proxy_states.values()}
+
+    def refresh_alive_proxy_actor_ids(self) -> Set[str]:
+        old_proxy_actor_ids = self._alive_proxy_actor_ids
+        new_proxy_actor_ids = self.get_alive_proxy_actor_ids()
+        self._alive_proxy_actor_ids = new_proxy_actor_ids
+
+        return old_proxy_actor_ids - new_proxy_actor_ids
+
+    def update(self, proxy_nodes: Set[NodeId] = None) -> Set[str]:
         """Update the state of all proxies.
 
         Start proxies on all nodes if not already exist and stop the proxies on nodes
         that are no longer exist. Update all proxy states. Kill and restart
         unhealthy proxies.
+
+        Returns: a set of proxy actor ids that have died since last update iteration.
         """
         if proxy_nodes is None:
             proxy_nodes = set()
@@ -628,6 +645,7 @@ class ProxyStateManager:
 
         self._stop_proxies_if_needed()
         self._start_proxies_if_needed(target_nodes)
+        return self.refresh_alive_proxy_actor_ids()
 
     def _get_target_nodes(self, proxy_nodes) -> List[Tuple[str, str]]:
         """Return the list of (node_id, ip_address) to deploy HTTP and gRPC servers
@@ -755,6 +773,8 @@ class ProxyStateManager:
             proxy_state = self._proxy_states.pop(node_id)
             self._proxy_restart_counts[node_id] = proxy_state.proxy_restart_count + 1
             proxy_state.shutdown()
+            if self._callback_on_proxy_death:
+                self._callback_on_proxy_death(proxy_state.actor_details.actor_id)
 
 
 def _try_set_exception(fut: asyncio.Future, e: Exception):
