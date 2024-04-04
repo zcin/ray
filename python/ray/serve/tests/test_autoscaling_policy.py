@@ -264,7 +264,7 @@ class TestAutoscalingMetrics:
 
         wait_for_condition(check_handle_metrics, handle=handle)
 
-    def test_handle_deleted(self, serve_instance):
+    def test_handle_deleted_on_crashed_actor(self, serve_instance):
         """If handles are deleted while requests are still inflight, the
         metrics should be invalidated after a certain time so the info
         doesn't become stale.
@@ -285,6 +285,7 @@ class TestAutoscalingMetrics:
                 "look_back_period_s": 10,
             },
             graceful_shutdown_timeout_s=0.1,
+            health_check_period_s=1,
             max_ongoing_requests=10,
         )
         class A:
@@ -317,18 +318,12 @@ class TestAutoscalingMetrics:
         ][0]["name"]
         router = ray.get_actor(router_name, namespace=SERVE_NAMESPACE)
 
-        print("Releasing signal at", time.time())
-        signal.send.remote()
-        print("Request results:", [ref.result() for ref in refs])
-
         # Kill Router replica
         print("Killing Router at", time.time())
         ray.kill(router)
 
-        wait_for_condition(check_num_replicas_eq, name="A", target=0, timeout=20)
-        wait_for_condition(
-            check_num_requests_eq, client=client, id=dep_id, expected=0, timeout=20
-        )
+        wait_for_condition(check_num_replicas_eq, name="A", target=0)
+        wait_for_condition(check_num_requests_eq, client=client, id=dep_id, expected=0)
 
 
 @pytest.mark.parametrize("min_replicas", [1, 2])
