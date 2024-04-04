@@ -53,6 +53,7 @@ class RouterMetricsManager:
         controller_handle: ActorHandle,
         router_requests_counter: metrics.Counter,
         queued_requests_gauge: metrics.Gauge,
+        running_requests_gauge: metrics.Gauge,
     ):
         self._handle_id = handle_id
         self._deployment_id = deployment_id
@@ -61,18 +62,35 @@ class RouterMetricsManager:
         # Exported metrics
         self.num_router_requests = router_requests_counter
         self.num_router_requests.set_default_tags(
-            {"deployment": deployment_id.name, "application": deployment_id.app_name}
+            {
+                "deployment": deployment_id.name,
+                "application": deployment_id.app_name,
+                "handle": self._handle_id,
+            }
         )
 
         self.num_queued_requests = 0
         self.num_queued_requests_gauge = queued_requests_gauge
         self.num_queued_requests_gauge.set_default_tags(
-            {"deployment": deployment_id.name, "application": deployment_id.app_name}
+            {
+                "deployment": deployment_id.name,
+                "application": deployment_id.app_name,
+                "handle": self._handle_id,
+            }
         )
+        self.num_queued_requests_gauge.set(0)
 
         # Track queries sent to replicas for the autoscaling algorithm.
         self.num_requests_sent_to_replicas: DefaultDict[ReplicaID, int] = defaultdict(
             int
+        )
+        self.num_running_requests_gauge = running_requests_gauge
+        self.num_running_requests_gauge.set_default_tags(
+            {
+                "deployment": deployment_id.name,
+                "application": deployment_id.app_name,
+                "handle": self._handle_id,
+            }
         )
         # We use Ray object ref callbacks to update state when tracking
         # number of requests running on replicas. The callbacks will be
@@ -197,10 +215,18 @@ class RouterMetricsManager:
     def inc_num_running_requests_for_replica(self, replica_id: ReplicaID):
         with self._queries_lock:
             self.num_requests_sent_to_replicas[replica_id] += 1
+            self.num_running_requests_gauge.set(
+                self.num_requests_sent_to_replicas[replica_id],
+                tags={"replica": replica_id.unique_id},
+            )
 
     def process_finished_request(self, replica_id: ReplicaID, *args):
         with self._queries_lock:
             self.num_requests_sent_to_replicas[replica_id] -= 1
+            self.num_running_requests_gauge.set(
+                self.num_requests_sent_to_replicas[replica_id],
+                tags={"replica": replica_id.unique_id},
+            )
 
     def should_send_scaled_to_zero_optimized_push(self, curr_num_replicas: int) -> bool:
         return (
@@ -338,7 +364,7 @@ class Router:
             metrics.Counter(
                 "serve_num_router_requests",
                 description="The number of requests processed by the router.",
-                tag_keys=("deployment", "route", "application"),
+                tag_keys=("deployment", "route", "application", "handle"),
             ),
             metrics.Gauge(
                 "serve_deployment_queued_queries",
@@ -346,7 +372,15 @@ class Router:
                     "The current number of queries to this deployment waiting"
                     " to be assigned to a replica."
                 ),
-                tag_keys=("deployment", "application"),
+                tag_keys=("deployment", "application", "handle"),
+            ),
+            metrics.Gauge(
+                "serve_num_ongoing_requests_at_replicas",
+                description=(
+                    "The current number of requests to this deployment that's "
+                    "been assigned and sent to execute on a replica."
+                ),
+                tag_keys=("deployment", "application", "handle", "replica"),
             ),
         )
 
