@@ -1002,6 +1002,20 @@ def test_deployment_handle_nested_in_obj(serve_instance):
     assert h.remote().result() == "hi"
 
 
+def test_max_ongoing_requests_none(serve_instance):
+    @serve.deployment(max_ongoing_requests=None)
+    class A:
+        pass
+
+    serve.run(A.bind())
+
+    @serve.deployment
+    class B:
+        pass
+
+    serve.run(B.options(max_ongoing_requests=None).bind())
+
+
 if __name__ == "__main__":
     import sys
 
