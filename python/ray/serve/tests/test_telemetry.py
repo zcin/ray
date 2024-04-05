@@ -521,6 +521,43 @@ def test_multiplexed_detect(manage_ray_with_telemetry):
     )
 
 
+@pytest.mark.parametrize("mode", ["deployment", "options"])
+def test_num_replicas_auto_api(manage_ray_with_telemetry, mode):
+    """Check that the handle to_object_ref API is detected correctly by telemetry."""
+
+    subprocess.check_output(["ray", "start", "--head"])
+    wait_for_condition(check_ray_started, timeout=5)
+
+    storage_handle = start_telemetry_app()
+    wait_for_condition(
+        lambda: ray.get(storage_handle.get_reports_received.remote()) > 0, timeout=5
+    )
+
+    report = ray.get(storage_handle.get_report.remote())
+    print(report["extra_usage_tags"])
+    assert (
+        ServeUsageTag.SERVE_AUTO_NUM_REPLICAS_USED.get_value_from_report(report) is None
+    )
+
+    class A:
+        pass
+
+    if mode == "deployment":
+        serve.run(serve.deployment(num_replicas="auto")(A).bind())
+    elif mode == "options":
+        serve.run(serve.deployment(A).options(num_replicas="auto").bind())
+    else:
+        pass
+
+    def check_telemetry():
+        report = ray.get(storage_handle.get_report.remote())
+        print(report["extra_usage_tags"])
+        assert ServeUsageTag.SERVE_AUTO_NUM_REPLICAS_USED.get_value_from_report(report) == "1"
+        return True
+
+    wait_for_condition(check_telemetry)
+
+
 class TestProxyTelemetry:
     def test_both_proxies_detected(manage_ray, ray_shutdown):
         """Test that both HTTP and gRPC proxies are detected by telemetry.

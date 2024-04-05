@@ -8,6 +8,7 @@ import ray
 from ray.actor import ActorHandle
 from ray.serve._private.common import (
     ApplicationStatus,
+    DeploymentHandleSource,
     DeploymentID,
     DeploymentStatus,
     DeploymentStatusInfo,
@@ -422,6 +423,8 @@ class ServeControllerClient:
         Returns:
             DeploymentHandle
         """
+        from ray.serve.context import _get_internal_replica_context
+
         cache_key = (deployment_name, app_name, missing_ok)
         if cache_key in self.handle_cache:
             return self.handle_cache[cache_key]
@@ -441,6 +444,9 @@ class ServeControllerClient:
             deployment_name,
             app_name,
         )
+
+        if _get_internal_replica_context() is not None:
+            handle = handle.options(_component=DeploymentHandleSource.REPLICA)
 
         self.handle_cache[cache_key] = handle
         if cache_key in self._evicted_handle_keys:
