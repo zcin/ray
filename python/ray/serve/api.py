@@ -16,7 +16,11 @@ from ray.serve._private.config import (
     ReplicaConfig,
     handle_num_replicas_auto,
 )
-from ray.serve._private.constants import SERVE_DEFAULT_APP_NAME, SERVE_LOGGER_NAME
+from ray.serve._private.constants import (
+    DEFAULT_MAX_ONGOING_REQUESTS,
+    SERVE_DEFAULT_APP_NAME,
+    SERVE_LOGGER_NAME,
+)
 from ray.serve._private.deployment_graph_build import build as pipeline_build
 from ray.serve._private.deployment_graph_build import (
     get_and_validate_ingress_deployment,
@@ -349,7 +353,7 @@ def deployment(
 
     max_ongoing_requests = (
         max_ongoing_requests
-        if max_ongoing_requests is not DEFAULT.VALUE
+        if max_ongoing_requests not in [DEFAULT.VALUE, None]
         else max_concurrent_queries
     )
     if num_replicas == "auto":
@@ -407,7 +411,9 @@ def deployment(
     deployment_config = DeploymentConfig.from_default(
         num_replicas=num_replicas if num_replicas is not None else 1,
         user_config=user_config,
-        max_ongoing_requests=max_ongoing_requests,
+        max_ongoing_requests=max_ongoing_requests
+        if max_ongoing_requests is not None
+        else DEFAULT_MAX_ONGOING_REQUESTS,
         max_queued_requests=max_queued_requests,
         autoscaling_config=autoscaling_config,
         graceful_shutdown_wait_loop_s=graceful_shutdown_wait_loop_s,
