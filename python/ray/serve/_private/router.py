@@ -50,12 +50,16 @@ class RouterMetricsManager:
         self,
         deployment_id: DeploymentID,
         handle_id: str,
+        self_actor_id: str,
+        lives_on_proxy_or_replica: bool,
         controller_handle: ActorHandle,
         router_requests_counter: metrics.Counter,
         queued_requests_gauge: metrics.Gauge,
     ):
         self._handle_id = handle_id
         self._deployment_id = deployment_id
+        self._self_actor_id = self_actor_id
+        self._lives_on_proxy_or_replica = lives_on_proxy_or_replica
         self._controller_handle = controller_handle
 
         # Exported metrics
@@ -216,7 +220,12 @@ class RouterMetricsManager:
         """
 
         self._controller_handle.record_handle_metrics.remote(
-            **self._get_aggregated_requests(), send_timestamp=time.time()
+            send_timestamp=time.time(),
+            deployment_id=self._deployment_id,
+            handle_id=self._handle_id,
+            actor_id=self._self_actor_id,
+            lives_on_proxy_or_replica=self._lives_on_proxy_or_replica,
+            **self._get_aggregated_requests(),
         )
 
     def _add_autoscaling_metrics_point(self):
@@ -245,8 +254,6 @@ class RouterMetricsManager:
             }
 
         return {
-            "deployment_id": self._deployment_id,
-            "handle_id": self._handle_id,
             "queued_requests": self.num_queued_requests,
             "running_requests": running_requests,
         }
@@ -267,6 +274,7 @@ class Router:
         self_node_id: str,
         self_actor_id: str,
         self_availability_zone: Optional[str],
+        lives_on_proxy_or_replica: bool,
         event_loop: asyncio.BaseEventLoop = None,
         _prefer_local_node_routing: bool = False,
         enable_queue_len_cache: bool = RAY_SERVE_ENABLE_QUEUE_LENGTH_CACHE,
@@ -334,6 +342,8 @@ class Router:
         self._metrics_manager = RouterMetricsManager(
             deployment_id,
             handle_id,
+            self_actor_id,
+            lives_on_proxy_or_replica,
             controller_handle,
             metrics.Counter(
                 "serve_num_router_requests",
