@@ -11,7 +11,7 @@ import ray
 from ray import serve
 from ray._raylet import GcsClient, ObjectRefGenerator
 from ray.serve._private.common import DeploymentID, RequestMetadata, RequestProtocol
-from ray.serve._private.constants import SERVE_LOGGER_NAME
+from ray.serve._private.constants import SERVE_LOGGER_NAME, SERVE_PROXY_NAME
 from ray.serve._private.default_impl import create_cluster_node_info_cache
 from ray.serve._private.router import Router
 from ray.serve._private.usage import ServeUsageTag
@@ -133,6 +133,8 @@ class _DeploymentHandleBase:
         )
 
     def _get_or_create_router(self) -> Union[Router, asyncio.AbstractEventLoop]:
+        from ray.serve.context import _get_internal_replica_context
+
         if self._router is None:
             node_id = ray.get_runtime_context().get_node_id()
             try:
@@ -144,6 +146,11 @@ class _DeploymentHandleBase:
             except Exception:
                 availability_zone = None
 
+            actor_name = ray.get_runtime_context().get_actor_name()
+            lives_on_proxy = actor_name is not None and SERVE_PROXY_NAME in actor_name
+            lives_on_replica = _get_internal_replica_context() is not None
+            lives_on_proxy_or_replica = lives_on_proxy or lives_on_replica
+
             self._router = Router(
                 serve.context._get_global_client()._controller,
                 self.deployment_id,
@@ -151,6 +158,7 @@ class _DeploymentHandleBase:
                 node_id,
                 get_current_actor_id(),
                 availability_zone,
+                lives_on_proxy_or_replica,
                 event_loop=_create_or_get_global_asyncio_event_loop_in_thread(),
                 _prefer_local_node_routing=self.handle_options._prefer_local_routing,
             )
