@@ -11,7 +11,7 @@ from ray.serve._private.config import (
     ReplicaConfig,
     handle_num_replicas_auto,
 )
-from ray.serve._private.constants import SERVE_LOGGER_NAME
+from ray.serve._private.constants import DEFAULT_MAX_ONGOING_REQUESTS, SERVE_LOGGER_NAME
 from ray.serve._private.utils import DEFAULT, Default
 from ray.serve.config import AutoscalingConfig
 from ray.serve.context import _get_global_client
@@ -421,7 +421,9 @@ class Deployment:
             new_deployment_config.user_config = user_config
 
         if max_ongoing_requests is not DEFAULT.VALUE:
-            new_deployment_config.max_ongoing_requests = max_ongoing_requests
+            new_deployment_config.max_ongoing_requests = (
+                max_ongoing_requests or DEFAULT_MAX_ONGOING_REQUESTS
+            )
 
         if max_queued_requests is not DEFAULT.VALUE:
             new_deployment_config.max_queued_requests = max_queued_requests
