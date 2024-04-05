@@ -6,6 +6,7 @@ from ray.serve._private.common import (
     ApplicationName,
     DeploymentID,
     EndpointInfo,
+    HandleComponent,
     RequestProtocol,
 )
 from ray.serve._private.constants import (
@@ -66,6 +67,7 @@ class LongestPrefixRouter(ProxyRouter):
                     # Streaming codepath isn't supported for Java.
                     stream=not info.app_is_cross_language,
                     _prefer_local_routing=RAY_SERVE_PROXY_PREFER_LOCAL_NODE_ROUTING,
+                    _component=HandleComponent.PROXY,
                 )
                 handle._set_request_protocol(self._protocol)
                 self.handles[endpoint] = handle
@@ -149,6 +151,7 @@ class EndpointRouter(ProxyRouter):
                     # Streaming codepath isn't supported for Java.
                     stream=not info.app_is_cross_language,
                     _prefer_local_routing=RAY_SERVE_PROXY_PREFER_LOCAL_NODE_ROUTING,
+                    _component=HandleComponent.PROXY,
                 )
                 handle._set_request_protocol(self._protocol)
                 self.handles[endpoint] = handle
