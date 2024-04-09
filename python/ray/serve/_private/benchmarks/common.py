@@ -1,29 +1,17 @@
+import asyncio
+from functools import partial
 import inspect
+import logging
 import time
 from typing import Callable, Coroutine, Tuple
 
+import aiohttp
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-
-class Blackhole:
-    def sink(self, o):
-        pass
-
-
-async def collect_profile_events(coro: Coroutine):
-    """Collects profiling events using Viztracer"""
-
-    from viztracer import VizTracer
-
-    tracer = VizTracer()
-    tracer.start()
-
-    await coro
-
-    tracer.stop()
-    tracer.save()
+from ray import serve
+from ray.serve.handle import DeploymentHandle
 
 
 async def run_latency_benchmark(
@@ -70,3 +58,83 @@ async def run_throughput_benchmark(
         stats.append(multiplier * count / (end - start))
 
     return round(np.mean(stats), 2), round(np.std(stats), 2)
+
+
+async def do_single_http_batch(
+    *, batch_size: int = 100, url: str = "http://localhost:8000"
+):
+    async with aiohttp.ClientSession(raise_for_status=True) as session:
+        async def consume():
+            await session.get(url)
+        await asyncio.gather(*[consume() for _ in range(batch_size)])
+
+
+async def collect_profile_events(coro: Coroutine):
+    """Collects profiling events using Viztracer"""
+
+    from viztracer import VizTracer
+
+    tracer = VizTracer()
+    tracer.start()
+
+    await coro
+
+    tracer.stop()
+    tracer.save()
+
+
+class Blackhole:
+    def sink(self, o):
+        pass
+
+
+@serve.deployment
+class Noop:
+    def __init__(self):
+        logging.getLogger("ray.serve").setLevel(logging.WARNING)
+
+    def __call__(self):
+        return b""
+
+
+@serve.deployment
+class Hello:
+    def __init__(self):
+        logging.getLogger("ray.serve").setLevel(logging.WARNING)
+
+    def __call__(self):
+        return b"hi"
+
+
+@serve.deployment
+class Benchmarker:
+    def __init__(self, handle: DeploymentHandle):
+        logging.getLogger("ray.serve").setLevel(logging.WARNING)
+        self._handle = handle
+
+    async def do_single_request(self):
+        return await self._handle.remote()
+
+    async def _do_single_batch(self, batch_size: int):
+        await asyncio.gather(*[self._handle.remote() for _ in range(batch_size)])
+
+    async def run_latency_benchmark(self, num_requests: int) -> pd.Series:
+        return await run_latency_benchmark(
+            self.do_single_request,
+            num_requests=num_requests,
+        )
+
+    async def run_throughput_benchmark(
+        self,
+        *,
+        batch_size: int,
+        num_trials: int,
+        trial_runtime: float,
+    ) -> Tuple[float, float]:
+        return await run_throughput_benchmark(
+            fn=partial(self._do_single_batch, batch_size=batch_size),
+            multiplier=batch_size,
+            num_trials=num_trials,
+            trial_runtime=trial_runtime,
+        )
+
