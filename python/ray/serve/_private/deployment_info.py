@@ -1,7 +1,6 @@
 from typing import Any, Dict, Optional
 
 import ray
-from ray.serve._private.autoscaling_policy import AutoscalingPolicyManager
 from ray.serve._private.common import TargetCapacityDirection
 from ray.serve._private.config import DeploymentConfig, ReplicaConfig
 from ray.serve.generated.serve_pb2 import DeploymentInfo as DeploymentInfoProto
@@ -45,10 +44,6 @@ class DeploymentInfo:
 
         self.target_capacity = target_capacity
         self.target_capacity_direction = target_capacity_direction
-
-        self.autoscaling_policy_manager = AutoscalingPolicyManager(
-            config=deployment_config.autoscaling_config
-        )
 
     def __getstate__(self) -> Dict[Any, Any]:
         clean_dict = self.__dict__.copy()
