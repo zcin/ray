@@ -2988,6 +2988,7 @@
 - name: rllib_learning_tests_appo_old_api_stack_tf
   group: RLlib tests
   working_dir: rllib_tests
+  stable: False
 
   frequency: nightly
   team: rllib
@@ -3186,6 +3187,7 @@
 - name: rllib_learning_tests_dqn_old_api_stack_tf
   group: RLlib tests
   working_dir: rllib_tests
+  stable: False
 
   frequency: nightly
   team: rllib
@@ -3247,6 +3249,7 @@
 - name: rllib_learning_tests_impala_old_api_stack_tf
   group: RLlib tests
   working_dir: rllib_tests
+  stable: False
 
   frequency: nightly
   team: rllib
@@ -3417,6 +3420,7 @@
   working_dir: rllib_tests
   frequency: nightly
   team: rllib
+  stable: False
 
   cluster:
     byod:
@@ -3447,6 +3451,7 @@
 - name: rllib_learning_tests_sac_tf
   group: RLlib tests
   working_dir: rllib_tests
+  stable: False
 
   frequency: nightly
   team: rllib
