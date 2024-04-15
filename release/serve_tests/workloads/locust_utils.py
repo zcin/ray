@@ -7,6 +7,7 @@ from tqdm import tqdm
 from typing import Any, Dict, List
 
 import ray
+from ray.serve._private.utils import generate_request_id
 
 
 logger = logging.getLogger(__file__)
@@ -72,14 +73,16 @@ class LocustClient:
 
             @task
             def test(self):
-                headers = {"Authorization": f"Bearer {token}"} if token else None
+                request_id = generate_request_id()
+                headers = (
+                    {"Authorization": f"Bearer {token}", "X-Request-ID": request_id}
+                    if token
+                    else None
+                )
                 with self.client.get(
                     "", headers=headers, json=data, catch_response=True
                 ) as r:
-                    if r.status_code == 200:
-                        r.request_meta["context"]["request_id"] = r.headers[
-                            "x-request-id"
-                        ]
+                    r.request_meta["context"]["request_id"] = request_id
 
             @events.request.add_listener
             def on_request(

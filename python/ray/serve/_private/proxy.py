@@ -1087,6 +1087,7 @@ class RequestIdMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
+        print("cindy call")
         headers = MutableHeaders(scope=scope)
         if "x-request-id" not in headers:
             # If X-Request-ID is not set, we
@@ -1099,7 +1100,7 @@ class RequestIdMiddleware:
         async def send_with_request_id(message: Dict):
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
-                headers.append("X-Request-ID", request_id)
+                # headers.append("X-Request-ID", request_id)
             if message["type"] == "websocket.accept":
                 message["X-Request-ID"] = request_id
             await send(message)
