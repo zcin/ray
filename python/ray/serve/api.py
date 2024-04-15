@@ -838,6 +838,7 @@ def get_app_handle(name: str) -> DeploymentHandle:
 def get_deployment_handle(
     deployment_name: str,
     app_name: Optional[str] = None,
+    _record_telemetry: bool = True,
 ) -> DeploymentHandle:
     """Get a handle to a deployment by name.
 
@@ -924,5 +925,7 @@ def get_deployment_handle(
         else:
             app_name = internal_replica_context.app_name
 
-    ServeUsageTag.SERVE_GET_DEPLOYMENT_HANDLE_API_USED.record("1")
+    if _record_telemetry:
+        ServeUsageTag.SERVE_GET_DEPLOYMENT_HANDLE_API_USED.record("1")
+
     return client.get_handle(deployment_name, app_name)
