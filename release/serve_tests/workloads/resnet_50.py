@@ -38,6 +38,8 @@ class Model:
             image = Image.open(BytesIO(image_bytes)).convert("RGB")
         except PIL.UnidentifiedImageError:
             return
+        except requests.exceptions.ConnectionError:
+            return
 
         images = [image]  # Batch size is 1
         input_tensor = torch.cat(
