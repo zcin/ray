@@ -105,7 +105,7 @@ class LocustClient:
                     err = FailedRequest(
                         request_id=request_id,
                         status_code=response.status_code,
-                        exception=response.text,
+                        exception=response.content,
                         response_time_s=response_time,
                         start_time_s=start_time,
                     )
