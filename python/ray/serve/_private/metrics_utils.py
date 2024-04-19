@@ -3,8 +3,9 @@ import bisect
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Callable, DefaultDict, Dict, Hashable, List, Optional
+from typing import Callable, DefaultDict, Dict, Hashable, List, Optional, Set
 
+from ray.serve._private.common import ReplicaID
 from ray.serve._private.constants import (
     METRICS_PUSHER_GRACEFUL_SHUTDOWN_TIMEOUT_S,
     SERVE_LOGGER_NAME,
@@ -135,6 +136,19 @@ class InMemoryMetricsStore:
         for name, value in data_points.items():
             # Using in-sort to insert while maintaining sorted ordering.
             bisect.insort(a=self.data[name], x=TimeStampedValue(timestamp, value))
+
+    def filter_data(self, allowed_keys: Set[Hashable]):
+        """Filter database by removing data points that are not in `allowed_keys`."""
+        for key in list(self.data):
+            if key not in allowed_keys:
+                del self.data[key]
+
+    def compact_data(self, window_start_timestamp_s: float):
+        """For all keys in the database, delete data points recorded before
+        `window_start_timestamp_s`.
+        """
+        for key in self.data:
+            self.data[key] = self._get_datapoints(key, window_start_timestamp_s)
 
     def _get_datapoints(
         self, key: Hashable, window_start_timestamp_s: float
