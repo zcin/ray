@@ -265,6 +265,11 @@ class RouterMetricsManager:
         )
 
     def _add_autoscaling_metrics_point(self):
+        """Adds metrics point for queued and running requests at replicas.
+        
+        Also prunes keys in the in memory metrics store with outdated datapoints.
+        """
+
         timestamp = time.time()
         self.metrics_store.add_metrics_point(
             {QUEUED_REQUESTS_KEY: self.num_queued_requests}, timestamp
