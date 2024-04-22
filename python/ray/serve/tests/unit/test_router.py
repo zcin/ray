@@ -18,6 +18,7 @@ from ray.serve._private.common import (
     RunningReplicaInfo,
 )
 from ray.serve._private.config import DeploymentConfig
+from ray.serve._private.constants import RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE
 from ray.serve._private.replica_scheduler import (
     PendingRequest,
     ReplicaScheduler,
