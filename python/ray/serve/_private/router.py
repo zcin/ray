@@ -42,6 +42,9 @@ from ray.util import metrics
 logger = logging.getLogger(SERVE_LOGGER_NAME)
 
 
+QUEUED_REQUESTS_KEY = "queued"
+
+
 class RouterMetricsManager:
     """Manages metrics for the router."""
 
@@ -264,7 +267,7 @@ class RouterMetricsManager:
     def _add_autoscaling_metrics_point(self):
         timestamp = time.time()
         self.metrics_store.add_metrics_point(
-            {"queued": self.num_queued_requests}, timestamp
+            {QUEUED_REQUESTS_KEY: self.num_queued_requests}, timestamp
         )
         if RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE:
             self.metrics_store.add_metrics_point(
