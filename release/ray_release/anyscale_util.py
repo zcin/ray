@@ -17,6 +17,8 @@ def find_cloud_by_name(
 
     cloud_id = None
     logger.info(f"Looking up cloud with name `{cloud_name}`. ")
+    import os
+    logger.info(f"environment variables: {os.environ}")
 
     paging_token = None
     while not cloud_id:
