@@ -177,7 +177,7 @@ def main(
         logger.info(f"{key}: {val}")
     save_test_results(
         aggregated_metrics,
-        default_output_file="/tmp/multi_deployment_1k_noop_replica.json",
+        output_path="/tmp/multi_deployment_1k_noop_replica.json",
     )
 
 

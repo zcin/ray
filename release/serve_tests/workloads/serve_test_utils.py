@@ -335,7 +335,10 @@ def run_wrk_on_all_nodes(
     return all_metrics, all_wrk_stdout
 
 
-def save_test_results(final_result, default_output_file="/tmp/release_test_out.json"):
-    test_output_json = os.environ.get("TEST_OUTPUT_JSON", default_output_file)
-    with open(test_output_json, "wt") as f:
-        json.dump(final_result, f)
+def save_test_results(
+    test_results: Dict,
+    output_path: str = "/tmp/release_test_out.json",
+):
+    results_file_path = os.environ.get("TEST_OUTPUT_JSON", output_path)
+    with open(results_file_path, "wt") as f:
+        json.dump(test_results, f)
