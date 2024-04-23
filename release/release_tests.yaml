@@ -2287,6 +2287,7 @@
   cluster:
     byod: {}
     cluster_compute: compute_tpl_single_node_32_cpu.yaml
+    # cloud_name: serve_release_tests_cloud
 
   run:
     timeout: 7200
@@ -2308,6 +2309,7 @@
   cluster:
     byod: {}
     cluster_compute: compute_tpl_32_cpu.yaml
+    # cloud_name: serve_release_tests_cloud
 
   run:
     timeout: 7200
@@ -2325,6 +2327,7 @@
       frequency: manual
       cluster:
         cluster_compute: compute_tpl_32_cpu_gce.yaml
+        # cloud_name: serve_release_tests_cloud
 
 - name: serve_autoscaling_load_test
   group: Serve tests
@@ -2337,6 +2340,7 @@
     byod:
       type: gpu
     cluster_compute: compute_tpl_single_node_32_cpu.yaml
+    # cloud_name: serve_release_tests_cloud
 
   run:
     timeout: 7200
@@ -2358,6 +2362,7 @@
   cluster:
     byod: {}
     cluster_compute: compute_tpl_single_node.yaml
+    # cloud_name: serve_release_tests_cloud
 
   run:
     timeout: 7200
@@ -2373,6 +2378,7 @@
       frequency: manual
       cluster:
         cluster_compute: compute_tpl_single_node_gce.yaml
+        # cloud_name: serve_release_tests_cloud
 
 - name: serve_microbenchmarks
   group: Serve tests
@@ -2384,6 +2390,7 @@
   cluster:
     byod: {}
     cluster_compute: compute_tpl_single_node_32_cpu.yaml
+    cloud_name: serve_release_tests_cloud
 
   run:
     timeout: 7200
@@ -2399,6 +2406,7 @@
       frequency: manual
       cluster:
         cluster_compute: compute_tpl_single_node_gce.yaml
+        # cloud_name: serve_release_tests_cloud
 
 - name: serve_resnet_benchmark
   group: Serve tests
@@ -2411,6 +2419,7 @@
     byod:
       type: gpu
     cluster_compute: compute_tpl_gpu_node.yaml
+    # cloud_name: serve_release_tests_cloud
 
   run:
     timeout: 7200
@@ -2426,6 +2435,7 @@
       frequency: manual
       cluster:
         cluster_compute: compute_tpl_gpu_node_gce.yaml
+        # cloud_name: serve_release_tests_cloud
 
 ########################
 # Train tests
