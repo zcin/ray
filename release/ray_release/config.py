@@ -53,13 +53,17 @@ def read_and_validate_release_test_collection(
             else bazel_runfile(config_file)
         )
         with open(path, "rt") as fp:
+            logger.info(f"parsing test definition {path}")
             tests += parse_test_definition(yaml.safe_load(fp))
+            logger.info("done parsing test definition")
 
+    logger.info("validating release test collection")
     validate_release_test_collection(
         tests,
         schema_file=schema_file,
         test_definition_root=test_definition_root,
     )
+    logger.info("done validating release test collection")
     return tests
 
 
@@ -127,7 +131,9 @@ def validate_release_test_collection(
             )
             num_errors += 1
 
+        logger.info("validating test cluster compute")
         error = validate_test_cluster_compute(test, test_definition_root)
+        logger.info("done validating test cluster compute")
         if error:
             logger.error(
                 f"Failed to validate test {test.get('name', '(unnamed)')}: {error}"
@@ -164,7 +170,9 @@ def validate_test_cluster_compute(
 ) -> Optional[str]:
     from ray_release.template import load_test_cluster_compute
 
+    logger.info("loading test cluster compute")
     cluster_compute = load_test_cluster_compute(test, test_definition_root)
+    logger.info("done loading test cluster compute")
     return validate_cluster_compute(cluster_compute)
 
 
@@ -250,6 +258,7 @@ def parse_python_version(version: str) -> Tuple[int, int]:
 
 
 def get_test_cloud_id(test: Test) -> str:
+    logger.info(f"environment in get test cloud id: {os.environ}")
     cloud_id = test["cluster"].get("cloud_id", None)
     cloud_name = test["cluster"].get("cloud_name", None)
     if cloud_id and cloud_name:
@@ -259,9 +268,12 @@ def get_test_cloud_id(test: Test) -> str:
             f"Please provide only one."
         )
     elif cloud_name and not cloud_id:
+        logger.info(f"finding cloud by name {cloud_name}")
         cloud_id = find_cloud_by_name(cloud_name)
         if not cloud_id:
+            logger.info("cloud id is none")
             raise RuntimeError(f"Couldn't find cloud with name `{cloud_name}`.")
+        logger.info("found cloud by name")
     else:
         cloud_id = cloud_id or str(DEFAULT_CLOUD_ID)
     return cloud_id
