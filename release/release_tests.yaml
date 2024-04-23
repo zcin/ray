@@ -2287,6 +2287,7 @@
   cluster:
     byod: {}
     cluster_compute: compute_tpl_single_node_32_cpu.yaml
+    cloud_name: serve_release_tests_cloud
 
   run:
     timeout: 7200
@@ -2337,6 +2338,7 @@
     byod:
       type: gpu
     cluster_compute: compute_tpl_single_node_32_cpu.yaml
+    cloud_name: serve_release_tests_cloud
 
   run:
     timeout: 7200
@@ -2384,6 +2386,7 @@
   cluster:
     byod: {}
     cluster_compute: compute_tpl_single_node_32_cpu.yaml
+    cloud_name: serve_release_tests_cloud
 
   run:
     timeout: 7200
