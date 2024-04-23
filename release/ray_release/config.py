@@ -259,9 +259,12 @@ def get_test_cloud_id(test: Test) -> str:
             f"Please provide only one."
         )
     elif cloud_name and not cloud_id:
+        print("finding cloud by name", cloud_name)
         cloud_id = find_cloud_by_name(cloud_name)
         if not cloud_id:
+            print("cloud id is none")
             raise RuntimeError(f"Couldn't find cloud with name `{cloud_name}`.")
+        print("found cloud by name")
     else:
         cloud_id = cloud_id or str(DEFAULT_CLOUD_ID)
     return cloud_id
