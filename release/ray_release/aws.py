@@ -42,6 +42,14 @@ def get_secret_token(secret_id: str) -> str:
     )["SecretString"]
 
 
+def fetch_api_token():
+    cli_token = boto3.client(
+        "secretsmanager", region_name="us-west-2"
+    ).get_secret_value(SecretId=str(RELEASE_AWS_ANYSCALE_SECRET_ARN))[
+        "SecretString"
+    ]
+    os.environ["ANYSCALE_CLI_TOKEN"] = cli_token
+
 def maybe_fetch_api_token():
     from anyscale.authenticate import AuthenticationBlock
 
