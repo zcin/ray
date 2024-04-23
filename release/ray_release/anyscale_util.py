@@ -17,12 +17,15 @@ def find_cloud_by_name(
 
     cloud_id = None
     logger.info(f"Looking up cloud with name `{cloud_name}`. ")
+    import os
+    logger.info(f"environment variables: {os.environ}")
 
     paging_token = None
     while not cloud_id:
         result = sdk.search_clouds(
             clouds_query=dict(paging=dict(count=50, paging_token=paging_token))
         )
+        logger.info(f"result: {result}")
 
         paging_token = result.metadata.next_paging_token
 
