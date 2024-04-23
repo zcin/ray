@@ -91,9 +91,11 @@ def main(
     )
 
     try:
+        logger.info("reading and validating release test collection")
         test_collection = read_and_validate_release_test_collection(
             test_collection_file or ["release/release_tests.yaml"]
         )
+        logger.info("done reading and validating release test collection")
     except ReleaseTestConfigError as e:
         raise ReleaseTestConfigError(
             "Cannot load test yaml file.\nHINT: If you're kicking off tests for a "
