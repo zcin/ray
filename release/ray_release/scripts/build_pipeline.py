@@ -7,6 +7,7 @@ from pathlib import Path
 
 import click
 
+from ray_release.aws import fetch_api_token
 from ray_release.buildkite.filter import filter_tests, group_tests
 from ray_release.buildkite.settings import get_pipeline_settings
 from ray_release.buildkite.step import get_step_for_test_group
@@ -69,6 +70,7 @@ def main(
         os.path.dirname(__file__), "..", "configs", global_config
     )
     init_global_config(global_config_file)
+    fetch_api_token()
     settings = get_pipeline_settings()
 
     tmpdir = None
@@ -91,9 +93,11 @@ def main(
     )
 
     try:
+        logger.info("reading and validating release test collection")
         test_collection = read_and_validate_release_test_collection(
             test_collection_file or ["release/release_tests.yaml"]
         )
+        logger.info("done reading and validating release test collection")
     except ReleaseTestConfigError as e:
         raise ReleaseTestConfigError(
             "Cannot load test yaml file.\nHINT: If you're kicking off tests for a "
