@@ -75,6 +75,7 @@ class AnyscaleJobManager:
                 runtime_env["upload_path"] = upload_path
 
         try:
+            logger.info(f"environment before create job: {os.environ}")
             job_response = anyscale_client.create_job(
                 CreateProductionJob(
                     name=self.cluster_manager.cluster_name,
