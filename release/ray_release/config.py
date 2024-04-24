@@ -258,6 +258,7 @@ def parse_python_version(version: str) -> Tuple[int, int]:
 
 
 def get_test_cloud_id(test: Test) -> str:
+    logger.info(f"environment in get test cloud id: {os.environ}")
     cloud_id = test["cluster"].get("cloud_id", None)
     cloud_name = test["cluster"].get("cloud_name", None)
     if cloud_id and cloud_name:
