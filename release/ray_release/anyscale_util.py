@@ -25,6 +25,7 @@ def find_cloud_by_name(
         result = sdk.search_clouds(
             clouds_query=dict(paging=dict(count=50, paging_token=paging_token))
         )
+        logger.info(f"result: {result}")
 
         paging_token = result.metadata.next_paging_token
 
