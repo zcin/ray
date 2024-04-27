@@ -633,6 +633,9 @@ class ReplicaActor:
         self,
         deployment_config: DeploymentConfig,
     ) -> Tuple[DeploymentConfig, DeploymentVersion, Optional[float]]:
+        logger.info(
+            f"reconfiguring with max ongoing requests {deployment_config.max_ongoing_requests}"
+        )
         try:
             user_config_changed = (
                 deployment_config.user_config != self._deployment_config.user_config
