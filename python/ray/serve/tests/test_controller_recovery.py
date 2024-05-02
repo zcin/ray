@@ -26,7 +26,8 @@ from ray.serve.tests.test_failure import request_with_retries
 from ray.util.state import list_actors
 
 
-def test_recover_start_from_replica_actor_names(serve_instance):
+@pytest.mark.parametrize("autoscaling", [True, False])
+def test_recover_start_from_replica_actor_names(serve_instance, autoscaling):
     """Test controller is able to recover starting -> running replicas from
     actor names.
     """
@@ -41,7 +42,15 @@ def test_recover_start_from_replica_actor_names(serve_instance):
         def __call__(self, *args):
             return "hii"
 
-    serve.run(TransientConstructorFailureDeployment.bind(), name="app")
+    if autoscaling:
+        serve.run(
+            TransientConstructorFailureDeployment.options(
+                autoscaling_config={"min_replicas": 2, "max_replicas": 2}
+            ).bind(),
+            name="app",
+        )
+    else:
+        serve.run(TransientConstructorFailureDeployment.bind(), name="app")
     for _ in range(10):
         response = request_with_retries(
             "/recover_start_from_replica_actor_names/", timeout=30
