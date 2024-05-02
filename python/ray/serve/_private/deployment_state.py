@@ -1559,6 +1559,10 @@ class DeploymentState:
             target_num_replicas = self._autoscaling_state_manager.register_deployment(
                 self._id, deployment_info, self._target_state.target_num_replicas
             )
+            # Since we are passing in a non-null current num replicas,
+            # register_deployment should always return a target number
+            # to set the target state to
+            assert target_num_replicas is not None
         else:
             self._autoscaling_state_manager.deregister_deployment(self._id)
             target_num_replicas = get_capacity_adjusted_num_replicas(
