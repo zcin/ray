@@ -12,9 +12,9 @@ from ray._private.ray_constants import (
 )
 
 import ray._private.runtime_env.agent.runtime_env_consts as runtime_env_consts
+from ray._private.default_impl import get_container_plugin
 from ray._private.ray_logging import setup_component_logger
 from ray._private.runtime_env.conda import CondaPlugin
-from ray._private.runtime_env.container import ContainerManager
 from ray._private.runtime_env.context import RuntimeEnvContext
 from ray._private.runtime_env.java_jars import JavaJarsPlugin
 from ray._private.runtime_env.pip import PipPlugin
@@ -200,10 +200,10 @@ class RuntimeEnvAgent:
         self._working_dir_plugin = WorkingDirPlugin(
             self._runtime_env_dir, self._gcs_aio_client
         )
+        self._container_plugin = get_container_plugin(temp_dir)
         # TODO(jonathan-anyscale): change the plugin to ProfilerPlugin
         # and unify with nsight and other profilers.
         self._nsight_plugin = NsightPlugin(self._runtime_env_dir)
-        self._container_manager = ContainerManager(temp_dir)
         self._mpi_plugin = MPIPlugin()
 
         # TODO(architkulkarni): "base plugins" and third-party plugins should all go
@@ -217,6 +217,7 @@ class RuntimeEnvAgent:
             self._java_jars_plugin,
             self._nsight_plugin,
             self._mpi_plugin,
+            self._container_plugin,
         ]
         self._plugin_manager = RuntimeEnvPluginManager()
         for plugin in self._base_plugins:
@@ -244,7 +245,7 @@ class RuntimeEnvAgent:
             "Listening to address %s, port %d", address, runtime_env_agent_port
         )
 
-    def uris_parser(self, runtime_env):
+    def uris_parser(self, runtime_env: RuntimeEnv):
         result = list()
         for name, plugin_setup_context in self._plugin_manager.plugins.items():
             plugin = plugin_setup_context.class_instance
@@ -309,9 +310,6 @@ class RuntimeEnvAgent:
             # avoid lint error. That will be moved to cgroup plugin.
             per_job_logger.debug(f"Worker has resource :" f"{allocated_resource}")
             context = RuntimeEnvContext(env_vars=runtime_env.env_vars())
-            await self._container_manager.setup(
-                runtime_env, context, logger=per_job_logger
-            )
 
             # Warn about unrecognized fields in the runtime env.
             for name, _ in runtime_env.plugins():
@@ -321,6 +319,17 @@ class RuntimeEnvAgent:
                         "Ray and will be ignored.  In the future, unrecognized "
                         "fields in the runtime_env will raise an exception."
                     )
+
+            # If `container` is specified, register it separately. It
+            # currently is not supported with any other runtime envs.
+            container_ctx = self._plugin_manager.plugins[self._container_plugin.name]
+            await create_for_plugin_if_needed(
+                runtime_env,
+                container_ctx.class_instance,
+                container_ctx.uri_cache,
+                context,
+                per_job_logger,
+            )
 
             # Creates each runtime env URI by their priority. `working_dir` is special
             # because it needs to be created before other plugins. All other plugins are
