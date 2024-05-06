@@ -1,21 +1,24 @@
-import os
 import logging
-
-from typing import Optional
+import os
+from typing import List, Optional
 
 from ray._private.runtime_env.context import RuntimeEnvContext
+from ray._private.runtime_env.plugin import RuntimeEnvPlugin
 
 default_logger = logging.getLogger(__name__)
 
 
-class ContainerManager:
-    def __init__(self, tmp_dir: str):
-        # _ray_tmp_dir will be mounted into container, so the worker process
-        # can connect to raylet.
-        self._ray_tmp_dir = tmp_dir
+class ContainerPlugin(RuntimeEnvPlugin):
+    """Starts worker in container."""
 
-    async def setup(
+    name = "container"
+
+    def __init__(self, ray_tmp_dir: str):
+        self._ray_tmp_dir = ray_tmp_dir
+
+    def modify_context(
         self,
+        uris: List[str],
         runtime_env: "RuntimeEnv",  # noqa: F821
         context: RuntimeEnvContext,
         logger: Optional[logging.Logger] = default_logger,
@@ -66,7 +69,13 @@ class ContainerManager:
         container_command.append("--entrypoint")
         container_command.append("python")
         container_command.append(runtime_env.py_container_image())
-        context.py_executable = " ".join(container_command)
-        logger.info(
-            "start worker in container with prefix: {}".format(context.py_executable)
-        )
+
+        # Example:
+        # podman run -v /tmp/ray:/tmp/ray
+        # --cgroup-manager=cgroupfs --network=host --pid=host --ipc=host
+        # --userns=keep-id --env RAY_RAYLET_PID=23478 --env RAY_JOB_ID=$RAY_JOB_ID
+        # --entrypoint python rayproject/ray:nightly-py39
+        container_command_str = " ".join(container_command)
+        logger.info(f"Starting worker in container with prefix {container_command_str}")
+
+        context.py_executable = container_command_str
