@@ -333,6 +333,14 @@ class TestAutoscalingMetrics:
         wait_for_condition(check_num_replicas_eq, name="A", target=0)
         wait_for_condition(check_num_requests_eq, client=client, id=dep_id, expected=0)
 
+        # Wait for new Router replica to start, so we avoid potential
+        # race conditions during test shutdown.
+        # (Ex: controller starts a new Router replica, before the replica
+        # initializes the test shutdown procedure deletes the Router
+        # deployment, replica initializes and tries to get deployment
+        # handle to `A` and fails.)
+        wait_for_condition(check_num_replicas_eq, name="Router", target=1)
+
     @pytest.mark.skipif(
         not RAY_SERVE_COLLECT_AUTOSCALING_METRICS_ON_HANDLE,
         reason="Needs metric collection at handle.",
@@ -748,6 +756,9 @@ def test_downscaling_with_fractional_scaling_factor(
     # replica when the signal actor goes out of scope and gets killed
     ray.get(signal.send.remote())
 
+    # Delete signal actor so there is no conflict between tests
+    ray.kill(signal)
+
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
 @pytest.mark.skip(reason="Currently failing with undefined behavior")
@@ -838,6 +849,9 @@ def test_e2e_update_autoscaling_deployment(serve_instance):
     signal.send.remote()
     wait_for_condition(check_num_replicas_eq, name="A", target=0)
 
+    # Delete signal actor so there is no conflict between tests
+    ray.kill(signal)
+
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
 def test_e2e_raise_min_replicas(serve_instance):
@@ -913,6 +927,9 @@ def test_e2e_raise_min_replicas(serve_instance):
 
     # Make sure start time did not change for the deployment
     assert get_deployment_start_time(controller, "A") == start_time
+
+    # Delete signal actor so there is no conflict between tests
+    ray.kill(signal)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows.")
