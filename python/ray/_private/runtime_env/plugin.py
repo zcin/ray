@@ -41,7 +41,7 @@ class RuntimeEnvPlugin(ABC):
         """
         pass
 
-    def get_uris(self, runtime_env: "RuntimeEnv") -> List[str]:  # noqa: F821
+    def get_uris(self, runtime_env) -> List[str]:
         return []
 
     async def create(
@@ -227,7 +227,7 @@ class RuntimeEnvPluginManager:
 
 
 async def create_for_plugin_if_needed(
-    runtime_env,
+    runtime_env: "RuntimeEnv",  # noqa: F821
     plugin: RuntimeEnvPlugin,
     uri_cache: URICache,
     context: RuntimeEnvContext,
