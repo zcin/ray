@@ -4,7 +4,7 @@ import os
 import subprocess
 import shlex
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from ray.util.annotations import DeveloperAPI
 from ray.core.generated.common_pb2 import Language
