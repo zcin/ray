@@ -14,8 +14,6 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-worker_pth = get_ray_default_worker_file_path()
-
 ray.init(num_cpus=1)
 
 session_dir = ray._private.worker.global_worker.node.address_info["session_dir"]
@@ -35,7 +33,7 @@ def task_finished():
 if args.use_new_api:
     runtime_env = {"image_uri": args.image}
 else:
-    runtime_env = {"container": {"image": args.image, "worker_path": worker_pth}}
+    runtime_env = {"container": {"image": args.image}}
 
 
 # Run a basic workload.
