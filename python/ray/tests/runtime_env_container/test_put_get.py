@@ -12,13 +12,11 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-worker_pth = get_ray_default_worker_file_path()
-
 
 if args.use_new_api:
     runtime_env = {"image_uri": args.image}
 else:
-    runtime_env = {"container": {"image": args.image, "worker_path": worker_pth}}
+    runtime_env = {"container": {"image": args.image}}
 
 
 @ray.remote(runtime_env=runtime_env)

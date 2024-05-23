@@ -11,13 +11,14 @@ default_logger = logging.getLogger(__name__)
 def _modify_context_impl(
     image_uri: str,
     run_options: Optional[List[str]],
-    worker_path: Optional[str],
     context: RuntimeEnvContext,
     logger: logging.Logger,
     ray_tmp_dir: str,
 ):
-    if worker_path:
-        context.override_worker_entrypoint = worker_path
+    context.override_worker_entrypoint = (
+        "`python -c "
+        '"import ray._private.workers.default_worker as dw; print(dw.__file__)"`'
+    )
 
     container_driver = "podman"
     container_command = [
