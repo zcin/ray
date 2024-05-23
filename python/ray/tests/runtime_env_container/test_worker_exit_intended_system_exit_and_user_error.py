@@ -16,12 +16,11 @@ parser.add_argument(
     action="store_true",
     help="Whether to use the new `image_uri` API instead of the old `container` API.",
 )
-worker_pth = get_ray_default_worker_file_path()
 
 if args.use_new_api:
     runtime_env = {"image_uri": args.image}
 else:
-    runtime_env = {"container": {"image": args.image, "worker_path": worker_pth}}
+    runtime_env = {"container": {"image": args.image}}
 
 ray.init(num_cpus=1)
 
