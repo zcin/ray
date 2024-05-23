@@ -4,20 +4,36 @@ from typing import List, Optional
 
 from ray._private.runtime_env.context import RuntimeEnvContext
 from ray._private.runtime_env.plugin import RuntimeEnvPlugin
+from ray._private.runtime_env.utils import check_output_cmd
 
 default_logger = logging.getLogger(__name__)
 
 
+async def _create_impl(image_uri: str, logger: logging.Logger):
+    # Pull image if it doesn't exist
+    # Also get path to `default_worker.py` inside the image.
+    pull_image_cmd = [
+        "podman",
+        "run",
+        "--rm",
+        image_uri,
+        "python",
+        "-c",
+        "import ray._private.workers.default_worker as default_worker; print(default_worker.__file__)",
+    ]
+    logger.info("Pulling image %s", image_uri)
+    return await check_output_cmd(pull_image_cmd, logger=logger)
+
+
 def _modify_context_impl(
     image_uri: str,
+    worker_path: str,
     run_options: Optional[List[str]],
-    worker_path: Optional[str],
     context: RuntimeEnvContext,
     logger: logging.Logger,
     ray_tmp_dir: str,
 ):
-    if worker_path:
-        context.override_worker_entrypoint = worker_path
+    context.override_worker_entrypoint = worker_path
 
     container_driver = "podman"
     container_command = [
@@ -59,7 +75,7 @@ def _modify_context_impl(
         container_command.extend(run_options)
     # TODO(chenk008): add resource limit
     container_command.append("--entrypoint")
-    container_command.append("python")
+    container_command.append("bash")
     container_command.append(image_uri)
 
     # Example:
@@ -81,6 +97,18 @@ class ImageURIPlugin(RuntimeEnvPlugin):
     def __init__(self, ray_tmp_dir: str):
         self._ray_tmp_dir = ray_tmp_dir
 
+    async def create(
+        self,
+        uri: Optional[str],
+        runtime_env: "RuntimeEnv",  # noqa: F821
+        context: RuntimeEnvContext,
+        logger: logging.Logger,
+    ) -> float:
+        if not runtime_env.image_uri():
+            return
+
+        self.worker_path = await _create_impl(runtime_env.image_uri(), logger)
+
     def modify_context(
         self,
         uris: List[str],
@@ -92,7 +120,12 @@ class ImageURIPlugin(RuntimeEnvPlugin):
             return
 
         _modify_context_impl(
-            runtime_env.image_uri(), [], None, context, logger, self._ray_tmp_dir
+            runtime_env.image_uri(),
+            [],
+            self.worker_path,
+            context,
+            logger,
+            self._ray_tmp_dir,
         )
 
 
@@ -103,6 +136,18 @@ class ContainerPlugin(RuntimeEnvPlugin):
 
     def __init__(self, ray_tmp_dir: str):
         self._ray_tmp_dir = ray_tmp_dir
+
+    async def create(
+        self,
+        uri: Optional[str],
+        runtime_env: "RuntimeEnv",  # noqa: F821
+        context: RuntimeEnvContext,
+        logger: logging.Logger,
+    ) -> float:
+        if not runtime_env.has_py_container() or not runtime_env.py_container_image():
+            return
+
+        self.worker_path = await _create_impl(runtime_env.py_container_image(), logger)
 
     def modify_context(
         self,
@@ -117,7 +162,7 @@ class ContainerPlugin(RuntimeEnvPlugin):
         _modify_context_impl(
             runtime_env.py_container_image(),
             runtime_env.py_container_run_options(),
-            runtime_env.py_container_worker_path(),
+            self.worker_path,
             context,
             logger,
             self._ray_tmp_dir,
