@@ -5,23 +5,22 @@ import argparse
 import ray
 from ray._private.state_api_test_utils import verify_failed_task
 from ray.util.state import list_workers
-from ray._private.test_utils import wait_for_condition, get_ray_default_worker_file_path
+from ray._private.test_utils import wait_for_condition
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--image", type=str, help="The docker image to use for Ray worker")
-args = parser.parse_args()
 parser.add_argument(
     "--use-new-api",
     action="store_true",
     help="Whether to use the new `image_uri` API instead of the old `container` API.",
 )
-worker_pth = get_ray_default_worker_file_path()
+args = parser.parse_args()
 
 if args.use_new_api:
     runtime_env = {"image_uri": args.image}
 else:
-    runtime_env = {"container": {"image": args.image, "worker_path": worker_pth}}
+    runtime_env = {"container": {"image": args.image}}
 
 ray.init(num_cpus=1)
 

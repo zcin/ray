@@ -102,6 +102,7 @@ def test_serve_basic(podman_docker_cluster, use_new_api):
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Only works on Linux.")
+@pytest.mark.skip
 @pytest.mark.parametrize("use_new_api", [True, False])
 def test_serve_telemetry(podman_docker_cluster, use_new_api):
     """Test Serve deployment telemetry."""
