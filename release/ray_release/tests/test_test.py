@@ -61,11 +61,11 @@ def _stub_test(val: dict) -> Test:
 
 
 def _stub_test_result(
-    status: ResultStatus = ResultStatus.SUCCESS, rayci_step_id="123", commit="456"
+    status: ResultStatus = ResultStatus.SUCCESS, rayci_step_id="123"
 ) -> TestResult:
     return TestResult(
         status=status.value,
-        commit=commit,
+        commit="1234567890",
         branch="master",
         url="url",
         timestamp=0,
@@ -340,7 +340,7 @@ def gen_high_impact_tests(mock_gen_from_s3) -> None:
             "name": "core_test",
             Test.KEY_IS_HIGH_IMPACT: "false",
             "test_results": [
-                _stub_test_result(rayci_step_id="corebuild", commit="123"),
+                _stub_test_result(rayci_step_id="corebuild"),
             ],
         }
     )
@@ -349,9 +349,7 @@ def gen_high_impact_tests(mock_gen_from_s3) -> None:
             "name": "data_test_01",
             Test.KEY_IS_HIGH_IMPACT: "true",
             "test_results": [
-                _stub_test_result(rayci_step_id="databuild", commit="123"),
-                _stub_test_result(rayci_step_id="data15build", commit="123"),
-                _stub_test_result(rayci_step_id="data12build", commit="456"),
+                _stub_test_result(rayci_step_id="databuild"),
             ],
         }
     )
@@ -360,7 +358,7 @@ def gen_high_impact_tests(mock_gen_from_s3) -> None:
             "name": "data_test_02",
             Test.KEY_IS_HIGH_IMPACT: "true",
             "test_results": [
-                _stub_test_result(rayci_step_id="databuild", commit="789"),
+                _stub_test_result(rayci_step_id="databuild"),
             ],
         }
     )
@@ -368,8 +366,7 @@ def gen_high_impact_tests(mock_gen_from_s3) -> None:
     mock_gen_from_s3.return_value = [core_test, data_test_01, data_test_02]
 
     assert Test.gen_high_impact_tests("linux") == {
-        "databuild": [data_test_01, data_test_02],
-        "data15build": [data_test_01],
+        "databuild": [data_test_01, data_test_02]
     }
 
 
@@ -382,6 +379,30 @@ def test_get_test_target():
     }
     for input, output in input_to_output.items():
         assert Test({"name": input}).get_target() == output
+
+
+@mock.patch.dict(
+    os.environ,
+    {"BUILDKITE_PULL_REQUEST_BASE_BRANCH": "base", "BUILDKITE_COMMIT": "commit"},
+)
+@mock.patch("subprocess.check_call")
+@mock.patch("subprocess.check_output")
+def test_get_changed_files(mock_check_output, mock_check_call) -> None:
+    mock_check_output.return_value = b"file1\nfile2\n"
+    assert Test._get_changed_files("") == {"file1", "file2"}
+
+
+@mock.patch("ray_release.test.Test._get_test_targets_per_file")
+@mock.patch("ray_release.test.Test._get_changed_files")
+def test_get_changed_tests(
+    mock_get_changed_files, mock_get_test_targets_per_file
+) -> None:
+    mock_get_changed_files.return_value = {"test_src", "build_src"}
+    mock_get_test_targets_per_file.side_effect = (
+        lambda x, _: {"//t1", "//t2"} if x == "test_src" else {}
+    )
+
+    assert Test.get_changed_tests("") == {"//t1", "//t2"}
 
 
 if __name__ == "__main__":
