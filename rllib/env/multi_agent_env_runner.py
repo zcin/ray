@@ -414,10 +414,6 @@ class MultiAgentEnvRunner(EnvRunner):
 
         done_episodes_to_return: List[MultiAgentEpisode] = []
 
-        # Reset the environment.
-        # TODO (simon): Check, if we need here the seed from the config.
-        obs, infos = self.env.reset()
-
         # Create a new multi-agent episode.
         _episode = self._new_episode()
         self._make_on_episode_callback("on_episode_created", _episode)
@@ -425,6 +421,9 @@ class MultiAgentEnvRunner(EnvRunner):
             "agent_to_module_mapping_fn": self.config.policy_mapping_fn,
         }
 
+        # Reset the environment.
+        # TODO (simon): Check, if we need here the seed from the config.
+        obs, infos = self.env.reset()
         # Set initial obs and infos in the episodes.
         _episode.add_env_reset(observations=obs, infos=infos)
         self._make_on_episode_callback("on_episode_start", _episode)
@@ -622,12 +621,6 @@ class MultiAgentEnvRunner(EnvRunner):
                 agent_episode_returns,
                 module_episode_returns,
             )
-
-        # TODO (simon): This results in hundreds of warnings in the logs
-        # b/c reducing over NaNs is not supported.
-        # # If no episodes at all, log NaN stats.
-        # if len(self._done_episodes_for_metrics) == 0:
-        #     self._log_episode_metrics(np.nan, np.nan, np.nan)
 
         # Log num episodes counter for this iteration.
         self.metrics.log_value(
