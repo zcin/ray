@@ -550,6 +550,7 @@ class RuntimeEnv(dict):
         return self["container"].get("image", "")
 
     def py_container_worker_path(self) -> Optional[str]:
+        ray.init
         if not self.has_py_container():
             return None
         return self["container"].get("worker_path", "")
