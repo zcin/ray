@@ -180,7 +180,7 @@ def setup_serve(model, use_gpu: bool = False):
     )  # Start on every node so `predict` can hit localhost.
     serve.run(
         MnistDeployment.options(
-            num_replicas=2, ray_actor_options={"num_gpus": bool(use_gpu)}
+            num_replicas=2, ray_actor_options={"num_gpus": bool(use_gpu), "worker": 1}
         ).bind(model)
     )
 
