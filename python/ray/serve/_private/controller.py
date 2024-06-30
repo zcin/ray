@@ -185,7 +185,10 @@ class ServeController:
 
         # Manage all applications' state
         self.application_state_manager = ApplicationStateManager(
-            self.deployment_state_manager, self.endpoint_state, self.kv_store
+            self.deployment_state_manager,
+            self.endpoint_state,
+            self.kv_store,
+            self.global_logging_config,
         )
 
         # Controller actor details
@@ -233,6 +236,7 @@ class ServeController:
             component_id=str(os.getpid()),
             logging_config=global_logging_config,
         )
+        self.application_state_manager.update_logging_config(self.global_logging_config)
 
         logger.info(
             f"Controller starting (version='{ray.__version__}').",
