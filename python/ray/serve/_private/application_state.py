@@ -1047,6 +1047,9 @@ def build_serve_application(
         )
 
         # Import and build the application.
+        args_info_str = f" with arguments {args}" if args else ""
+        logger.info(f"Importing application '{name}'{args_info_str}.")
+
         app = call_app_builder_with_args_if_necessary(import_attr(import_path), args)
         deployments = pipeline_build(app._get_internal_dag_node(), name)
         ingress = get_and_validate_ingress_deployment(deployments)
@@ -1069,9 +1072,15 @@ def build_serve_application(
     except KeyboardInterrupt:
         # Error is raised when this task is canceled with ray.cancel(), which
         # happens when deploy_apps() is called.
-        logger.info("Existing config deployment request terminated.")
+        logger.info(
+            "Existing config deployment request terminated because of keyboard "
+            "interrupt."
+        )
         return None, None
     except Exception:
+        logger.error(
+            f"Exception importing application '{name}'.\n{traceback.format_exc()}"
+        )
         return None, traceback.format_exc()
 
 
