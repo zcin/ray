@@ -637,6 +637,7 @@ class ProxyStatus(str, Enum):
 
 
 class ServeComponentType(str, Enum):
+    CONTROLLER = "controller"
     REPLICA = "replica"
 
 
