@@ -29,10 +29,11 @@ def check_service_state(service_name: str, expected_state: ServiceState):
 @contextmanager
 def start_service(
     service_name: str,
+    image_uri: Optional[str],
     compute_config: ComputeConfig,
     applications: List[Dict],
+    working_dir: Optional[str] = None,
     add_unique_suffix: bool = True,
-    cluster_env: Optional[str] = None,
 ):
     """Starts an Anyscale Service with the specified configs.
 
@@ -47,7 +48,6 @@ def start_service(
             service name.
     """
 
-    cluster_env = cluster_env or os.environ.get("ANYSCALE_JOB_CLUSTER_ENV_NAME", None)
     if add_unique_suffix:
         ray_commit = (
             ray.__commit__[:8] if ray.__commit__ != "{{RAY_COMMIT_SHA}}" else "nocommit"
@@ -56,9 +56,9 @@ def start_service(
 
     service_config = service.ServiceConfig(
         name=service_name,
-        image_uri=f"anyscale/image/{cluster_env}:1" if cluster_env else None,
+        image_uri=image_uri,
         compute_config=compute_config,
-        working_dir="workloads",
+        working_dir=working_dir,
         applications=applications,
     )
     try:

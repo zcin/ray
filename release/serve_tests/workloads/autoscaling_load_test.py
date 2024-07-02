@@ -6,6 +6,7 @@ Benchmark test.
 import click
 import json
 import logging
+import os
 from typing import Optional
 
 from anyscale import service
@@ -61,11 +62,13 @@ def main(output_path: Optional[str], cluster_env: Optional[str]):
         LocustStage(duration_s=1200, users=100, spawn_rate=10),
     ]
 
+    cluster_env = cluster_env or os.environ.get("ANYSCALE_JOB_CLUSTER_ENV_NAME", None)
     with start_service(
         "autoscaling-load-test",
+        image_uri=f"anyscale/image/{cluster_env}:1" if cluster_env else None,
         compute_config=compute_config,
         applications=[resnet_application],
-        cluster_env=cluster_env,
+        working_dir="workloads",
     ) as service_name:
         ray.init(address="auto")
         status = service.status(name=service_name)
